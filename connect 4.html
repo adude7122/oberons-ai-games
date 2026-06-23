@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connect Four (Smarter AI & Dark Mode)</title>
+    
+    <style>
+        /* --- 0. CSS VARIABLES (Theme Colors) --- */
+        :root {
+            /* Light Mode Defaults */
+            --background-color: #f0f0f0;
+            --text-color: #333;
+            --board-frame-color: #004d99;
+            --board-border-color: #003366;
+            --slot-background: white;
+            --slot-border: #ccc;
+        }
+
+        .dark-mode {
+            /* Dark Mode Overrides */
+            --background-color: #121212;
+            --text-color: #e0e0e0;
+            --board-frame-color: #1a1a40;
+            --board-border-color: #0d0d26;
+            --slot-background: #333333;
+            --slot-border: #555555;
+        }
+
+        /* --- 1. GENERAL STYLES (Use Variables) --- */
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        #game-controls {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap; /* Allows controls to wrap on small screens */
+        }
+
+        #game-info {
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        #current-player {
+            font-size: 1.5em;
+            color: var(--text-color);
+            transition: color 0.3s;
+        }
+
+        #game-status {
+            color: #ff6600; /* Distinct status color */
+            font-weight: bold;
+            min-height: 1.2em;
+        }
+
+        /* Game Board Container */
+        #board {
+            display: grid;
+            grid-template-columns: repeat(7, 60px); 
+            grid-template-rows: repeat(6, 60px);
+            background-color: var(--board-frame-color);
+            border: 5px solid var(--board-border-color);
+            padding: 5px;
+            border-radius: 10px;
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.4);
+        }
+
+        .slot {
+            width: 50px;
+            height: 50px;
+            margin: 5px;
+            border-radius: 50%;
+            background-color: var(--slot-background);
+            border: 2px solid var(--slot-border);
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.3s ease-out;
+        }
+
+        .column-marker {
+            grid-column: span 1;
+            grid-row: 1 / 7;
+            pointer-events: auto;
+            z-index: 10;
+        }
+
+        .column-marker:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        /* Player Disc Styles (Fixed Colors) */
+        .player-1 {
+            background-color: #e60000; /* Red (Human Player) */
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+
+        .player-2 {
+            background-color: #ffcc00; /* Yellow (AI/Human Player 2) */
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Controls */
+        #reset-button, #mode-selector {
+            padding: 8px 15px;
+            font-size: 1em;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+        }
+
+        #reset-button {
+            background-color: #4CAF50;
+            color: white;
+            transition: background-color 0.3s;
+        }
+
+        #reset-button:hover {
+            background-color: #45a049;
+        }
+        
+        /* Dark Mode Toggle Switch */
+        #dark-mode-toggle {
+            cursor: pointer;
+            font-size: 1.5em;
+            padding: 5px;
+            border: 1px solid var(--text-color);
+            border-radius: 5px;
+            background-color: transparent;
+            color: var(--text-color);
+            transition: color 0.3s, border-color 0.3s;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-info">
+        <h2 id="current-player">Player 1's Turn (Red)</h2>
+        <h3 id="game-status"></h3>
+    </div>
+    
+    <div id="game-controls">
+        <label for="mode-selector">Game Mode:</label>
+        <select id="mode-selector">
+            <option value="2player">Two Player (Human vs Human)</option>
+            <option value="1player">One Player (Human vs AI)</option>
+        </select>
+        <button id="reset-button">Reset Game</button>
+        <button id="dark-mode-toggle" aria-label="Toggle Dark Mode">🌓</button>
+    </div>
+    
+    <div id="board">
+        </div>
+
+    <script>
+        // --- JAVASCRIPT LOGIC ---
+        
+        // Game Constants
+        const ROWS = 6;
+        const COLS = 7;
+        const PLAYER_1 = 1; // Human Player (Red)
+        const PLAYER_2 = 2; // AI/Human Player 2 (Yellow)
+        const AI_DEPTH = 6; // Increased depth for smarter AI
+
+        // Game State Variables
+        let board = [];
+        let currentPlayer = PLAYER_1;
+        let gameOver = false;
+        let gameMode = '2player';
+
+        // DOM Elements
+        const boardElement = document.getElementById('board');
+        const currentPlayerElement = document.getElementById('current-player');
+        const gameStatusElement = document.getElementById('game-status');
+        const resetButton = document.getElementById('reset-button');
+        const modeSelector = document.getElementById('mode-selector');
+        const darkModeToggle = document.getElementById('dark-mode-toggle');
+
+        // --- DARK MODE LOGIC ---
+        
+        function checkSystemPreference() {
+            const savedMode = localStorage.getItem('theme');
+            if (savedMode) {
+                if (savedMode === 'dark') {
+                    document.body.classList.add('dark-mode');
+                }
+            } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                document.body.classList.add('dark-mode');
+            }
+            // Initialize icon correctly
+            darkModeToggle.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌓';
+        }
+        
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+            const isDark = document.body.classList.contains('dark-mode');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            darkModeToggle.textContent = isDark ? '☀️' : '🌓'; 
+        }
+
+        // --- 1. INITIALIZATION & SETUP ---
+
+        function initializeGame() {
+            board = Array(ROWS).fill(0).map(() => Array(COLS).fill(0));
+            currentPlayer = PLAYER_1;
+            gameOver = false;
+            gameMode = modeSelector.value;
+            
+            boardElement.innerHTML = '';
+            createBoardHTML();
+            
+            updateGameInfo();
+        }
+
+        function createBoardHTML() {
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    const slot = document.createElement('div');
+                    slot.classList.add('slot');
+                    boardElement.appendChild(slot);
+                }
+            }
+            for (let c = 0; c < COLS; c++) {
+                const marker = document.createElement('div');
+                marker.classList.add('column-marker');
+                marker.dataset.col = c;
+                marker.addEventListener('click', () => handlePlayerMove(c));
+                boardElement.appendChild(marker);
+            }
+        }
+        
+        function handlePlayerMove(col) {
+            if (gameOver || (gameMode === '1player' && currentPlayer === PLAYER_2)) {
+                return;
+            }
+            makeMove(col);
+        }
+
+        // --- 2. CORE MOVE LOGIC ---
+
+        function getNextOpenRow(col, currentBoard = board) {
+            for (let r = ROWS - 1; r >= 0; r--) {
+                if (currentBoard[r][col] === 0) {
+                    return r;
+                }
+            }
+            return -1;
+        }
+
+        function makeMove(col) {
+            const row = getNextOpenRow(col);
+            if (row === -1 || gameOver) return;
+
+            board[row][col] = currentPlayer;
+            const slotIndex = row * COLS + col;
+            const slotElement = boardElement.children[slotIndex];
+            slotElement.classList.add(`player-${currentPlayer}`);
+            gameStatusElement.textContent = "";
+
+            if (checkWin(row, col)) {
+                gameStatusElement.textContent = `Player ${currentPlayer} Wins!`;
+                gameOver = true;
+            } else if (isBoardFull(board)) {
+                gameStatusElement.textContent = "It's a Draw!";
+                gameOver = true;
+            } else {
+                currentPlayer = (currentPlayer === PLAYER_1) ? PLAYER_2 : PLAYER_1;
+                updateGameInfo();
+                
+                if (gameMode === '1player' && currentPlayer === PLAYER_2) {
+                    // Disable clicks while AI "thinks"
+                    boardElement.style.pointerEvents = 'none'; 
+                    setTimeout(() => {
+                        aiMove();
+                        boardElement.style.pointerEvents = 'auto'; // Re-enable clicks
+                    }, 500); 
+                }
+            }
+        }
+
+        function isBoardFull(currentBoard) {
+            return currentBoard[0].every(val => val !== 0);
+        }
+
+        function updateGameInfo() {
+            if (!gameOver) {
+                const color = currentPlayer === PLAYER_1 ? 'Red' : 'Yellow';
+                const label = gameMode === '1player' && currentPlayer === PLAYER_2 ? 'AI' : `Player ${currentPlayer}`;
+                currentPlayerElement.textContent = `${label}'s Turn (${color})`;
+                currentPlayerElement.style.color = currentPlayer === PLAYER_1 ? '#e60000' : '#ffcc00';
+            } else {
+                currentPlayerElement.textContent = "Game Over!";
+                currentPlayerElement.style.color = 'var(--text-color)';
+            }
+        }
+
+        // --- 3. WIN CHECK LOGIC (Shared by Human and AI) ---
+
+        function checkWin(r, c, currentBoard = board) {
+            const player = currentBoard[r][c];
+            if (player === 0) return false;
+            
+            const count = (dr, dc) => {
+                let count = 0;
+                let currentRow = r;
+                let currentCol = c;
+                while (
+                    currentRow >= 0 && currentRow < ROWS &&
+                    currentCol >= 0 && currentCol < COLS &&
+                    currentBoard[currentRow][currentCol] === player
+                ) {
+                    count++;
+                    currentRow += dr;
+                    currentCol += dc;
+                }
+                return count;
+            };
+
+            if (count(0, 1) + count(0, -1) - 1 >= 4) return true; 
+            if (count(1, 0) + count(-1, 0) - 1 >= 4) return true; 
+            if (count(1, 1) + count(-1, -1) - 1 >= 4) return true; 
+            if (count(1, -1) + count(-1, 1) - 1 >= 4) return true; 
+
+            return false;
+        }
+        
+        // --- 4. SMARTER AI (MINIMAX) LOGIC ---
+        
+        function getValidMoves(currentBoard) {
+            const validCols = [];
+            for (let c = 0; c < COLS; c++) {
+                if (currentBoard[0][c] === 0) { 
+                    validCols.push(c);
+                }
+            }
+            return validCols;
+        }
+        
+        function getWindows(line, windowSize) {
+            const windows = [];
+            for (let i = 0; i <= line.length - windowSize; i++) {
+                windows.push(line.slice(i, i + windowSize));
+            }
+            return windows;
+        }
+
+        function evaluateWindow(window, player) {
+            let score = 0;
+            const opp = (player === PLAYER_1) ? PLAYER_2 : PLAYER_1;
+
+            const playerCount = window.filter(p => p === player).length;
+            const emptyCount = window.filter(p => p === 0).length;
+            const oppCount = window.filter(p => p === opp).length;
+
+            if (playerCount === 4) {
+                score += 100000; 
+            } else if (playerCount === 3 && emptyCount === 1) {
+                score += 5000; 
+            } else if (playerCount === 2 && emptyCount === 2) {
+                score += 50;
+            }
+
+            // Block opponent's threats
+            if (oppCount === 3 && emptyCount === 1) {
+                score -= 50000; 
+            }
+            
+            return score;
+        }
+
+        function scorePosition(currentBoard, player) {
+            let score = 0;
+
+            // 1. Center Column Preference
+            const centerCol = Math.floor(COLS / 2);
+            for (let r = 0; r < ROWS; r++) {
+                if (currentBoard[r][centerCol] === player) {
+                    score += 10;
+                }
+            }
+
+            // 2. Horizontal Score
+            for (let r = 0; r < ROWS; r++) {
+                const rowArray = currentBoard[r];
+                const windows = getWindows(rowArray, 4);
+                for (let window of windows) {
+                    score += evaluateWindow(window, player);
+                }
+            }
+
+            // 3. Vertical Score
+            for (let c = 0; c < COLS; c++) {
+                const colArray = [];
+                for (let r = 0; r < ROWS; r++) {
+                    colArray.push(currentBoard[r][c]);
+                }
+                const windows = getWindows(colArray, 4);
+                for (let window of windows) {
+                    score += evaluateWindow(window, player);
+                }
+            }
+
+            // 4. Positive Diagonal (\) Score
+            for (let r = 0; r <= ROWS - 4; r++) {
+                for (let c = 0; c <= COLS - 4; c++) {
+                    const window = [
+                        currentBoard[r][c], currentBoard[r + 1][c + 1],
+                        currentBoard[r + 2][c + 2], currentBoard[r + 3][c + 3]
+                    ];
+                    score += evaluateWindow(window, player);
+                }
+            }
+
+            // 5. Negative Diagonal (/) Score
+            for (let r = 0; r <= ROWS - 4; r++) {
+                for (let c = COLS - 1; c >= 3; c--) {
+                    const window = [
+                        currentBoard[r][c], currentBoard[r + 1][c - 1],
+                        currentBoard[r + 2][c - 2], currentBoard[r + 3][c - 3]
+                    ];
+                    score += evaluateWindow(window, player);
+                }
+            }
+            
+            return score;
+        }
+
+        function minimax(currentBoard, depth, isMaximizingPlayer, alpha, beta) {
+            const validMoves = getValidMoves(currentBoard);
+            
+            // 1. Check for Terminal Win/Loss
+            for (let c of validMoves) {
+                const r = getNextOpenRow(c, currentBoard);
+                if (r !== -1 && checkWin(r, c, currentBoard)) {
+                    // Huge score indicates immediate win/loss is detected
+                    return [null, isMaximizingPlayer ? 1000000000000000 : -1000000000000000];
+                }
+            }
+            
+            // 2. Check for Terminal Draw/Depth 0
+            if (depth === 0 || validMoves.length === 0) {
+                return [null, scorePosition(currentBoard, PLAYER_2)];
+            }
+
+            let bestCol = null;
+
+            if (isMaximizingPlayer) {
+                let value = -Infinity;
+                for (let col of validMoves) {
+                    let tempBoard = currentBoard.map(arr => [...arr]); 
+                    let row = getNextOpenRow(col, tempBoard);
+                    if (row !== -1) {
+                        tempBoard[row][col] = PLAYER_2;
+                        let newScore = minimax(tempBoard, depth - 1, false, alpha, beta)[1];
+                        if (newScore > value) {
+                            value = newScore;
+                            bestCol = col;
+                        }
+                        alpha = Math.max(alpha, value);
+                        if (alpha >= beta) break; 
+                    }
+                }
+                return [bestCol, value];
+            } else { // Minimizing Player
+                let value = Infinity;
+                for (let col of validMoves) {
+                    let tempBoard = currentBoard.map(arr => [...arr]);
+                    let row = getNextOpenRow(col, tempBoard);
+                    if (row !== -1) {
+                        tempBoard[row][col] = PLAYER_1;
+                        let newScore = minimax(tempBoard, depth - 1, true, alpha, beta)[1];
+                        if (newScore < value) {
+                            value = newScore;
+                            bestCol = col;
+                        }
+                        beta = Math.min(beta, value);
+                        if (alpha >= beta) break; 
+                    }
+                }
+                return [bestCol, value];
+            }
+        }
+
+        function aiMove() {
+            if (gameOver || currentPlayer !== PLAYER_2) return;
+            
+            const [bestCol, score] = minimax(board, AI_DEPTH, true, -Infinity, Infinity);
+            
+            if (bestCol !== null) {
+                makeMove(bestCol); 
+            }
+        }
+
+
+        // --- 5. EVENT LISTENERS & START ---
+        
+        darkModeToggle.addEventListener('click', toggleDarkMode);
+        resetButton.addEventListener('click', initializeGame);
+        modeSelector.addEventListener('change', initializeGame); 
+
+        // Initial setup
+        checkSystemPreference(); 
+        initializeGame();
+    </script>
+</body>
+</html>

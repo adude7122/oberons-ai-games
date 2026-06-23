@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Minecraft Alpha JS</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #87CEEB; font-family: 'Courier New', monospace; }
+        #ui { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; background: rgba(0,0,0,0.8); padding: 6px; border: 3px solid #555; }
+        .slot { width: 50px; height: 50px; border: 3px solid #333; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; background-size: cover; image-rendering: pixelated; }
+        .slot.active { border-color: #fff; box-shadow: 0 0 10px #fff; }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 20px; height: 2px; background: white; transform: translate(-50%, -50%); pointer-events: none; }
+        #crosshair::after { content: ""; position: absolute; top: 50%; left: 50%; width: 2px; height: 20px; background: white; transform: translate(-50%, -50%); }
+        #hint { position: absolute; top: 10px; left: 10px; color: #00ff00; text-shadow: 2px 2px #000; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="hint">Minecraft Alpha JS Prototype<br>1-5: Blocks | Click: Break | Alt+Click: Place</div>
+    <div id="crosshair"></div>
+    <div id="ui">
+        <div class="slot active" id="slot-1" style="background-color: #59c036;">GRASS</div>
+        <div class="slot" id="slot-2" style="background-color: #8b5a2b;">DIRT</div>
+        <div class="slot" id="slot-3" style="background-color: #7a7a7a;">STONE</div>
+        <div class="slot" id="slot-4" style="background-color: #614126;">LOG</div>
+        <div class="slot" id="slot-5" style="background-color: #c4a484;">PLANK</div>
+    </div>
+
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { PointerLockControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/PointerLockControls.js';
+
+        // --- Constants & World Data ---
+        const CHUNK_SIZE = 16;
+        const world = new Map();
+        let activeBlock = 1;
+
+        // --- Textures (Simulating Alpha pixels with canvas patterns) ---
+        function createPixelTexture(color, noise = 0.2) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 16; canvas.height = 16;
+            const ctx = canvas.getContext('2d');
+            for(let x=0; x<16; x++) {
+                for(let y=0; y<16; y++) {
+                    const variant = 1 - (Math.random() * noise);
+                    ctx.fillStyle = `rgb(${color.r * variant}, ${color.g * variant}, ${color.b * variant})`;
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            }
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.magFilter = THREE.NearestFilter; // This makes it look like pixels!
+            tex.minFilter = THREE.NearestFilter;
+            return tex;
+        }
+
+        const materials = {
+            1: new THREE.MeshStandardMaterial({ map: createPixelTexture({r:110, g:180, b:70}) }), // Alpha Grass
+            2: new THREE.MeshStandardMaterial({ map: createPixelTexture({r:139, g:90, b:43}) }),  // Dirt
+            3: new THREE.MeshStandardMaterial({ map: createPixelTexture({r:120, g:120, b:120}, 0.4) }), // Stone
+            4: new THREE.MeshStandardMaterial({ map: createPixelTexture({r:80, g:60, b:40}) }),   // Log
+            5: new THREE.MeshStandardMaterial({ map: createPixelTexture({r:170, g:140, b:100}) }) // Plank
+        };
+
+        // --- Engine Setup ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB);
+        scene.fog = new THREE.Fog(0x87CEEB, 20, 100); // Alpha style fog
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new PointerLockControls(camera, document.body);
+        document.addEventListener('click', () => { if(!controls.isLocked) controls.lock(); });
+
+        const ambient = new THREE.AmbientLight(0xffffff, 0.8);
+        const sun = new THREE.DirectionalLight(0xffffff, 0.5);
+        sun.position.set(10, 50, 10);
+        scene.add(ambient, sun);
+
+        const raycaster = new THREE.Raycaster();
+        raycaster.far = 10;
+        const blockGeo = new THREE.BoxGeometry(1, 1, 1);
+
+        // --- World Functions ---
+        function getVoxel(x, y, z) {
+            const cx = Math.floor(x / CHUNK_SIZE);
+            const cy = Math.floor(y / CHUNK_SIZE);
+            const cz = Math.floor(z / CHUNK_SIZE);
+            const chunk = world.get(`${cx},${cy},${cz}`);
+            if (!chunk) return 0;
+            const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+            const ly = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+            const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+            return chunk.data[lx][ly][lz];
+        }
+
+        function setVoxel(x, y, z, type) {
+            const cx = Math.floor(x / CHUNK_SIZE);
+            const cy = Math.floor(y / CHUNK_SIZE);
+            const cz = Math.floor(z / CHUNK_SIZE);
+            let chunk = world.get(`${cx},${cy},${cz}`);
+            if (!chunk) return;
+            const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+            const ly = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+            const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+            chunk.data[lx][ly][lz] = type;
+            chunk.buildMesh();
+            // Re-mesh neighbors
+            [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].forEach(n => {
+                const nc = world.get(`${Math.floor((x+n[0])/CHUNK_SIZE)},0,${Math.floor((z+n[2])/CHUNK_SIZE)}`);
+                if(nc) nc.buildMesh();
+            });
+        }
+
+        class Chunk {
+            constructor(cx, cy, cz) {
+                this.cx = cx; this.cy = cy; this.cz = cz;
+                this.mesh = new THREE.Group();
+                this.data = Array.from({ length: CHUNK_SIZE }, () => 
+                    Array.from({ length: CHUNK_SIZE }, () => new Uint8Array(CHUNK_SIZE))
+                );
+                this.generate();
+            }
+
+            generate() {
+                for (let x = 0; x < CHUNK_SIZE; x++) {
+                    for (let z = 0; z < CHUNK_SIZE; z++) {
+                        const wx = this.cx * CHUNK_SIZE + x;
+                        const wz = this.cz * CHUNK_SIZE + z;
+                        const h = Math.floor(Math.sin(wx*0.1) * 2 + Math.cos(wz*0.1) * 2 + 8);
+                        for (let y = 0; y < CHUNK_SIZE; y++) {
+                            if (y < h) this.data[x][y][z] = (y === h-1) ? 1 : (y > h-3 ? 2 : 3);
+                        }
+                    }
+                }
+            }
+
+            buildMesh() {
+                scene.remove(this.mesh);
+                this.mesh = new THREE.Group();
+                for (let x = 0; x < CHUNK_SIZE; x++) {
+                    for (let y = 0; y < CHUNK_SIZE; y++) {
+                        for (let z = 0; z < CHUNK_SIZE; z++) {
+                            const type = this.data[x][y][z];
+                            if (type === 0) continue;
+                            const wx = this.cx * CHUNK_SIZE + x;
+                            const wy = this.cy * CHUNK_SIZE + y;
+                            const wz = this.cz * CHUNK_SIZE + z;
+                            
+                            // CULLING: Only add face if neighbor is air
+                            if (getVoxel(wx+1,wy,wz)&&getVoxel(wx-1,wy,wz)&&getVoxel(wx,wy+1,wz)&&getVoxel(wx,wy-1,wz)&&getVoxel(wx,wy,wz+1)&&getVoxel(wx,wy,wz-1)) continue;
+
+                            const cube = new THREE.Mesh(blockGeo, materials[type]);
+                            cube.position.set(wx, wy, wz);
+                            cube.userData = { x: wx, y: wy, z: wz };
+                            this.mesh.add(cube);
+                        }
+                    }
+                }
+                scene.add(this.mesh);
+            }
+        }
+
+        // --- Interaction & Input ---
+        window.addEventListener('mousedown', (e) => {
+            if (!controls.isLocked) return;
+            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            const hits = raycaster.intersectObjects(scene.children, true);
+            if (hits.length > 0) {
+                const hit = hits[0];
+                const pos = hit.object.userData;
+                if (e.button === 0 && !e.altKey) {
+                    setVoxel(pos.x, pos.y, pos.z, 0);
+                } else if (e.button === 2 || (e.button === 0 && e.altKey)) {
+                    const n = hit.face.normal;
+                    setVoxel(pos.x+n.x, pos.y+n.y, pos.z+n.z, activeBlock);
+                }
+            }
+        });
+        window.addEventListener('contextmenu', e => e.preventDefault());
+
+        const move = { fwd: false, bwd: false, lft: false, rgt: false, up: false, dwn: false };
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'KeyW') move.fwd = true;
+            if (e.code === 'KeyS') move.bwd = true;
+            if (e.code === 'KeyA') move.lft = true;
+            if (e.code === 'KeyD') move.rgt = true;
+            if (e.code === 'Space') move.up = true;
+            if (e.code === 'ShiftLeft') move.dwn = true;
+            if (e.key >= 1 && e.key <= 5) {
+                activeBlock = parseInt(e.key);
+                document.querySelectorAll('.slot').forEach(s => s.classList.remove('active'));
+                document.getElementById(`slot-${activeBlock}`).classList.add('active');
+            }
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'KeyW') move.fwd = false;
+            if (e.code === 'KeyS') move.bwd = false;
+            if (e.code === 'KeyA') move.lft = false;
+            if (e.code === 'KeyD') move.rgt = false;
+            if (e.code === 'Space') move.up = false;
+            if (e.code === 'ShiftLeft') move.dwn = false;
+        });
+
+        // --- Loop ---
+        camera.position.set(8, 12, 8);
+        function animate() {
+            requestAnimationFrame(animate);
+            const s = 0.15;
+            if (move.fwd) controls.moveForward(s);
+            if (move.bwd) controls.moveForward(-s);
+            if (move.lft) controls.moveRight(-s);
+            if (move.rgt) controls.moveRight(s);
+            if (move.up) camera.position.y += s;
+            if (move.dwn) camera.position.y -= s;
+
+            const pCX = Math.floor(camera.position.x / CHUNK_SIZE);
+            const pCZ = Math.floor(camera.position.z / CHUNK_SIZE);
+            for(let x=-2; x<=2; x++) {
+                for(let z=-2; z<=2; z++) {
+                    const k = `${pCX+x},0,${pCZ+z}`;
+                    if(!world.has(k)) {
+                        const c = new Chunk(pCX+x, 0, pCZ+z);
+                        world.set(k, c);
+                        c.buildMesh();
+                    }
+                }
+            }
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>

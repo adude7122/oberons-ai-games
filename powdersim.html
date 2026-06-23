@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Powder Simulation</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+:root {
+  --bg:#f4f4f4;
+  --fg:#111;
+  --panel:#fff;
+  --border:#ccc;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#0f1115;
+    --fg:#eaeaea;
+    --panel:#1a1d24;
+    --border:#333;
+  }
+}
+body.manual-dark {
+  --bg:#0f1115;
+  --fg:#eaeaea;
+  --panel:#1a1d24;
+  --border:#333;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+  font-family:system-ui,sans-serif;
+  background:var(--bg);
+  color:var(--fg);
+}
+header{
+  padding:8px;
+  display:flex;
+  gap:8px;
+  background:var(--panel);
+  border-bottom:1px solid var(--border);
+}
+canvas{
+  flex:1;
+  image-rendering:pixelated;
+  cursor:crosshair;
+}
+select,button{
+  background:var(--bg);
+  color:var(--fg);
+  border:1px solid var(--border);
+  padding:4px 8px;
+}
+</style>
+</head>
+
+<body>
+<header>
+  <strong>Powder</strong>
+  <select id="material">
+    <option value="sand">Sand</option>
+    <option value="water">Water</option>
+    <option value="stone">Stone</option>
+    <option value="wood">Wood</option>
+    <option value="oil">Oil</option>
+    <option value="lava">Lava</option>
+    <option value="fire">Fire</option>
+  </select>
+  <button id="pause">Pause</button>
+  <button id="step">Step</button>
+  <button id="clear">Clear</button>
+</header>
+
+<canvas id="c"></canvas>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const SCALE = 4;
+let W, H;
+
+function resize(){
+  W=Math.floor(innerWidth/SCALE);
+  H=Math.floor((innerHeight-document.querySelector("header").offsetHeight)/SCALE);
+  canvas.width=W; canvas.height=H;
+  canvas.style.width=W*SCALE+"px";
+  canvas.style.height=H*SCALE+"px";
+}
+resize(); addEventListener("resize",resize);
+
+/* ----- DATA ----- */
+const E=0;
+let grid=new Uint8Array(W*H);
+let life=new Uint8Array(W*H);
+let heat=new Uint16Array(W*H);
+let vx=new Float32Array(W*H);
+let vy=new Float32Array(W*H);
+
+const M={sand:1,water:2,stone:3,wood:4,oil:5,lava:6,fire:7};
+const COLORS={
+  0:[0,0,0,0],
+  1:[194,178,128,255],
+  2:[60,130,255,255],
+  3:[120,120,120,255],
+  4:[139,90,43,255],
+  5:[40,40,20,255],
+  6:[255,90,0,255],
+  7:[255,200,60,255]
+};
+
+const idx=(x,y)=>x+y*W;
+const ok=(x,y)=>x>=0&&y>=0&&x<W&&y<H;
+
+/* ----- UI ----- */
+let current=M.sand, paused=false;
+material.onchange=e=>current=M[e.target.value];
+clear.onclick=()=>{grid.fill(0);life.fill(0);heat.fill(0);vx.fill(0);vy.fill(0)};
+pause.onclick=()=>{paused=!paused;pause.textContent=paused?"Resume":"Pause"};
+step.onclick=()=>{if(paused){tick();draw()}};
+
+/* ----- DRAWING ----- */
+let drawing=false;
+canvas.onpointerdown=()=>drawing=true;
+canvas.onpointerup=()=>drawing=false;
+canvas.onpointerleave=()=>drawing=false;
+canvas.onpointermove=e=>{
+  if(!drawing)return;
+  const r=canvas.getBoundingClientRect();
+  const x=Math.floor((e.clientX-r.left)/SCALE);
+  const y=Math.floor((e.clientY-r.top)/SCALE);
+  for(let dx=-1;dx<=1;dx++)
+    for(let dy=-1;dy<=1;dy++)
+      if(ok(x+dx,y+dy)){
+        const i=idx(x+dx,y+dy);
+        grid[i]=current;
+        if(current===M.fire)life[i]=20;
+        if(current===M.lava)heat[i]=400;
+      }
+};
+
+/* ----- EXPLOSION WITH VELOCITY ----- */
+function explode(cx,cy){
+  const R = 10;
+  for(let dx=-R; dx<=R; dx++){
+    for(let dy=-R; dy<=R; dy++){
+      const x = cx + dx;
+      const y = cy + dy;
+      if(!ok(x,y)) continue;
+
+      const d = Math.hypot(dx,dy);
+      if(d === 0 || d > R) continue;
+
+      const i = idx(x,y);
+      if(grid[i] === E) continue;
+
+      const angle = Math.atan2(dy, dx);
+
+      // eruption bias (push upward)
+      const upward = -1.5;
+
+      const force = (R - d) / R * 3;
+
+      vx[i] += Math.cos(angle) * force + (Math.random()-0.5)*0.5;
+      vy[i] += Math.sin(angle) * force + upward;
+
+      // ignite flammable debris
+      if(grid[i] === M.oil || grid[i] === M.wood){
+        grid[i] = M.fire;
+        life[i] = 20;
+      }
+    }
+  }
+}
+
+
+/* ----- SIMULATION ----- */
+function move(from,to){
+  grid[to]=grid[from];
+  life[to]=life[from];
+  heat[to]=heat[from];
+  vx[to]=vx[from];
+  vy[to]=vy[from];
+  grid[from]=E;
+  life[from]=heat[from]=vx[from]=vy[from]=0;
+}
+
+
+function tick(){
+  // --- NORMAL POWDER PASS ---
+  for(let y=H-1;y>=0;y--){
+    for(let x=0;x<W;x++){
+      const i=idx(x,y);
+      const m=grid[i];
+      if(!m)continue;
+
+      // FIRE
+      if(m===M.fire){
+        if(--life[i]<=0){grid[i]=E;continue;}
+        for(const[dX,dY]of[[1,0],[-1,0],[0,1],[0,-1]]){
+          if(ok(x+dX,y+dY)){
+            const ni=idx(x+dX,y+dY);
+            if(grid[ni]===M.oil||grid[ni]===M.wood)
+              explode(x,y);
+          }
+        }
+        continue;
+      }
+
+      // LAVA COOLING
+      if(m===M.lava){
+        heat[i]--;
+        if(heat[i]<=0){
+          grid[i]=M.stone;
+          continue;
+        }
+      }
+
+      // LIQUID FLOW
+      if(m===M.water||m===M.oil||m===M.lava){
+        if(ok(x,y+1)&&!grid[idx(x,y+1)]){
+          move(i,idx(x,y+1));
+          continue;
+        }
+        const dir=Math.random()<0.5?-1:1;
+        if(ok(x+dir,y)&&!grid[idx(x+dir,y)]){
+          move(i,idx(x+dir,y));
+          continue;
+        }
+      }
+
+      // SAND
+      if(m===M.sand){
+        if(ok(x,y+1)&&!grid[idx(x,y+1)]){
+          move(i,idx(x,y+1));
+          continue;
+        }
+      }
+    }
+  }
+
+  // --- VELOCITY PASS (EXPLOSIONS ONLY) ---
+    // --- VELOCITY PASS (DIAGONAL) ---
+  // --- VELOCITY PASS (WITH GROUND IMPACT) ---
+for (let i = 0; i < grid.length; i++) {
+  if (grid[i] === E) continue;
+
+  let vx0 = vx[i];
+  let vy0 = vy[i];
+
+  if (Math.abs(vx0) + Math.abs(vy0) < 0.3) {
+    vx[i] = vy[i] = 0;
+    continue;
+  }
+
+  let x = i % W;
+  let y = (i / W) | 0;
+
+  let sx = Math.sign(vx0);
+  let sy = Math.sign(vy0);
+
+  // Try diagonal
+  if (ok(x + sx, y + sy) && !grid[idx(x + sx, y + sy)]) {
+    move(i, idx(x + sx, y + sy));
+    continue;
+  }
+
+  // Try vertical
+  if (sy !== 0 && ok(x, y + sy) && !grid[idx(x, y + sy)]) {
+    move(i, idx(x, y + sy));
+    continue;
+  }
+
+  // Try horizontal
+  if (sx !== 0 && ok(x + sx, y) && !grid[idx(x + sx, y)]) {
+    move(i, idx(x + sx, y));
+    continue;
+  }
+
+  /* ----- IMPACT ----- */
+  // If moving downward and blocked → hit ground
+  if (vy0 > 0 && ok(x, y + 1) && grid[idx(x, y + 1)] !== E) {
+    // convert impact into sideways scatter
+    vx[i] += (Math.random() - 0.5) * vy0 * 0.5;
+    vy[i] = 0;
+
+    // try to roll sideways
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    if (ok(x + dir, y) && !grid[idx(x + dir, y)]) {
+      move(i, idx(x + dir, y));
+    }
+    continue;
+  }
+
+  // Otherwise damp motion
+  vx[i] *= 0.4;
+  vy[i] *= 0.4;
+}
+
+
+}
+
+
+/* ----- RENDER ----- */
+function draw(){
+  const img=ctx.createImageData(W,H);
+  for(let i=0;i<grid.length;i++)img.data.set(COLORS[grid[i]],i*4);
+  ctx.putImageData(img,0,0);
+}
+
+(function loop(){
+  if(!paused)tick();
+  draw();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

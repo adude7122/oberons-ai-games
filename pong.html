@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pong Game - Difficulty Modes</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { display: flex; justify-content: center; align-items: center; height: 100vh; background-color: black; color: white; font-family: Arial, sans-serif; }
+    canvas { border: 1px solid white; }
+    select { position: absolute; top: 20px; font-size: 18px; background: black; color: white; border: 1px solid white; padding: 5px; }
+  </style>
+</head>
+<body>
+  <canvas id="pongCanvas" width="800" height="600"></canvas>
+  <select id="difficultySelect">
+    <option value="easy">Easy</option>
+    <option value="normal" selected>Normal</option>
+    <option value="hard">Hard</option>
+    <option value="extreme">Extreme</option>
+  </select>
+
+  <script>
+    const canvas = document.getElementById('pongCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const paddleWidth = 10, paddleHeight = 100;
+    const ballRadius = 10;
+    let ballSpeedX = 5, ballSpeedY = 5;
+
+    const paddleLeft = { x: 0, y: canvas.height / 2 - paddleHeight / 2, width: paddleWidth, height: paddleHeight, speed: 15, dy: 0 };
+    const paddleRight = { x: canvas.width - paddleWidth, y: canvas.height / 2 - paddleHeight / 2, width: paddleWidth, height: paddleHeight, speed: 3, dy: 0 };
+    let ball = { x: canvas.width / 2, y: canvas.height / 2, radius: ballRadius, speedX: ballSpeedX, speedY: ballSpeedY };
+
+    let upPressed = false, downPressed = false;
+    let difficulty = "normal";
+
+    document.addEventListener('keydown', keyDownHandler);
+    document.addEventListener('keyup', keyUpHandler);
+    document.getElementById('difficultySelect').addEventListener('change', changeDifficulty);
+
+    function keyDownHandler(e) {
+      if (e.key === "Up" || e.key === "ArrowUp") upPressed = true;
+      else if (e.key === "Down" || e.key === "ArrowDown") downPressed = true;
+    }
+
+    function keyUpHandler(e) {
+      if (e.key === "Up" || e.key === "ArrowUp") upPressed = false;
+      else if (e.key === "Down" || e.key === "ArrowDown") downPressed = false;
+    }
+
+    function changeDifficulty(e) {
+      difficulty = e.target.value;
+      switch(difficulty) {
+        case 'easy':
+          paddleRight.speed = 2;
+          paddleRight.reactionSpeed = 1;
+          break;
+        case 'normal':
+          paddleRight.speed = 3;
+          paddleRight.reactionSpeed = 2;
+          break;
+        case 'hard':
+          paddleRight.speed = 4;
+          paddleRight.reactionSpeed = 4;
+          break;
+        case 'extreme':
+          paddleRight.speed = 6;
+          paddleRight.reactionSpeed = 6;
+          break;
+      }
+    }
+
+    function movePaddle() {
+      if (upPressed && paddleLeft.y > 0) paddleLeft.y -= paddleLeft.speed;
+      if (downPressed && paddleLeft.y < canvas.height - paddleHeight) paddleLeft.y += paddleLeft.speed;
+
+      // AI Movement (with difficulty scaling)
+      const paddleCenter = paddleRight.y + paddleHeight / 2;
+      if (paddleCenter < ball.y) paddleRight.y += paddleRight.speed;
+      else if (paddleCenter > ball.y) paddleRight.y -= paddleRight.speed;
+
+      // AI reaction speed adjustment based on difficulty
+      if (difficulty === 'easy') {
+        if (Math.abs(paddleCenter - ball.y) > paddleHeight / 4) {
+          paddleRight.y += (ball.y > paddleCenter) ? 1 : -1;
+        }
+      } else if (difficulty === 'normal') {
+        if (Math.abs(paddleCenter - ball.y) > paddleHeight / 8) {
+          paddleRight.y += (ball.y > paddleCenter) ? 1 : -1;
+        }
+      } else if (difficulty === 'hard') {
+        if (Math.abs(paddleCenter - ball.y) > paddleHeight / 8) {
+          paddleRight.y += (ball.y > paddleCenter) ? 2 : -2;
+        }
+      } else if (difficulty === 'extreme') {
+        if (Math.abs(paddleCenter - ball.y) > paddleHeight / 16) {
+          paddleRight.y += (ball.y > paddleCenter) ? 3 : -3;
+        }
+      }
+
+      // Keep paddles within canvas bounds
+      paddleLeft.y = Math.max(0, Math.min(paddleLeft.y, canvas.height - paddleHeight));
+      paddleRight.y = Math.max(0, Math.min(paddleRight.y, canvas.height - paddleHeight));
+    }
+
+    function moveBall() {
+      ball.x += ball.speedX;
+      ball.y += ball.speedY;
+
+      // Ball hits the top or bottom wall
+      if (ball.y + ball.radius > canvas.height || ball.y - ball.radius < 0) ball.speedY = -ball.speedY;
+
+      // Ball hits the left paddle
+      if (ball.x - ball.radius < paddleLeft.x + paddleLeft.width && ball.y > paddleLeft.y && ball.y < paddleLeft.y + paddleHeight) {
+        ball.speedX = -ball.speedX;
+        let hitPos = (ball.y - (paddleLeft.y + paddleHeight / 2)) / (paddleHeight / 2);
+        ball.speedY = ballSpeedY * hitPos;
+      }
+
+      // Ball hits the right paddle (AI)
+      if (ball.x + ball.radius > paddleRight.x && ball.y > paddleRight.y && ball.y < paddleRight.y + paddleHeight) {
+        ball.speedX = -ball.speedX;
+        let hitPos = (ball.y - (paddleRight.y + paddleHeight / 2)) / (paddleHeight / 2);
+        ball.speedY = ballSpeedY * hitPos;
+      }
+
+      // Ball goes out of bounds
+      if (ball.x + ball.radius < 0 || ball.x - ball.radius > canvas.width) {
+        resetBall();
+      }
+    }
+
+    function resetBall() {
+      ball.x = canvas.width / 2;
+      ball.y = canvas.height / 2;
+      ball.speedX = ballSpeedX * (Math.random() > 0.5 ? 1 : -1);
+      ball.speedY = ballSpeedY * (Math.random() > 0.5 ? 1 : -1);
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw paddles
+      ctx.fillStyle = "white";
+      ctx.fillRect(paddleLeft.x, paddleLeft.y, paddleLeft.width, paddleLeft.height);
+      ctx.fillRect(paddleRight.x, paddleRight.y, paddleRight.width, paddleRight.height);
+
+      // Draw ball
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+      ctx.fillStyle = "white";
+      ctx.fill();
+      ctx.closePath();
+    }
+
+    function update() {
+      movePaddle();
+      moveBall();
+      draw();
+    }
+
+    function gameLoop() {
+      update();
+      requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+  </script>
+</body>
+</html>

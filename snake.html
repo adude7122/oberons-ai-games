@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Snake</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      background-color: black;
+      color: #00ff00;
+      font-family: monospace;
+      margin: 0;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      height: 100vh;
+      position: relative;
+    }
+
+    h1 {
+      margin: 10px;
+      text-shadow: 0 0 5px #00ff00;
+      z-index: 2;
+    }
+
+    canvas {
+      background-color: black;
+      border: 2px solid #00ff00;
+      box-shadow: 0 0 20px #00ff00;
+      z-index: 2;
+    }
+
+    #score {
+      margin-top: 10px;
+      font-size: 1.2em;
+      text-shadow: 0 0 5px #00ff00;
+      z-index: 2;
+    }
+
+    .scanlines {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(0, 255, 0, 0.03),
+        rgba(0, 255, 0, 0.03) 1px,
+        transparent 1px,
+        transparent 3px
+      );
+      animation: flicker 0.2s infinite;
+      z-index: 1;
+    }
+
+    @keyframes flicker {
+      0%, 100% { opacity: 0.15; }
+      50% { opacity: 0.05; }
+    }
+  </style>
+</head>
+<body>
+  <h1>>_ SNAKE</h1>
+  <canvas id="game" width="400" height="400"></canvas>
+  <div id="score">SCORE: 0</div>
+  <div class="scanlines"></div>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    const scale = 20;
+    const rows = canvas.height / scale;
+    const cols = canvas.width / scale;
+
+    let snake;
+    let food;
+    let score = 0;
+
+    class Snake {
+      constructor() {
+        this.body = [{ x: 5 * scale, y: 5 * scale }];
+        this.xSpeed = scale;
+        this.ySpeed = 0;
+        this.grow = false;
+      }
+
+      update() {
+        const head = {
+          x: this.body[0].x + this.xSpeed,
+          y: this.body[0].y + this.ySpeed
+        };
+
+        head.x = (head.x + canvas.width) % canvas.width;
+        head.y = (head.y + canvas.height) % canvas.height;
+
+        this.body.unshift(head);
+        if (!this.grow) this.body.pop();
+        else this.grow = false;
+      }
+
+      draw() {
+        for (let i = 0; i < this.body.length; i++) {
+          const part = this.body[i];
+          if (i === 0) {
+            ctx.fillStyle = "#00ff00";
+            ctx.shadowColor = "#00ff00";
+            ctx.shadowBlur = 10;
+            ctx.fillRect(part.x, part.y, scale, scale);
+            ctx.shadowBlur = 0;
+          } else {
+            const grad = ctx.createLinearGradient(part.x, part.y, part.x + scale, part.y + scale);
+            grad.addColorStop(0, "#007700");
+            grad.addColorStop(1, "#00aa00");
+            ctx.fillStyle = grad;
+            ctx.fillRect(part.x, part.y, scale, scale);
+          }
+        }
+      }
+
+      changeDirection(dir) {
+        if (dir === "ArrowUp" && this.ySpeed === 0) {
+          this.xSpeed = 0; this.ySpeed = -scale;
+        } else if (dir === "ArrowDown" && this.ySpeed === 0) {
+          this.xSpeed = 0; this.ySpeed = scale;
+        } else if (dir === "ArrowLeft" && this.xSpeed === 0) {
+          this.xSpeed = -scale; this.ySpeed = 0;
+        } else if (dir === "ArrowRight" && this.xSpeed === 0) {
+          this.xSpeed = scale; this.ySpeed = 0;
+        }
+      }
+
+      eat(food) {
+        if (this.body[0].x === food.x && this.body[0].y === food.y) {
+          this.grow = true;
+          return true;
+        }
+        return false;
+      }
+
+      checkCollision() {
+        const [head, ...body] = this.body;
+        return body.some(part => head.x === part.x && head.y === part.y);
+      }
+    }
+
+    function getRandomFoodPosition() {
+      return {
+        x: Math.floor(Math.random() * cols) * scale,
+        y: Math.floor(Math.random() * rows) * scale
+      };
+    }
+
+    function drawFood(food) {
+      const cx = food.x + scale / 2;
+      const cy = food.y + scale / 2;
+      const radius = scale / 2.5;
+
+      ctx.shadowColor = "#ff0000";
+      ctx.shadowBlur = 15;
+      ctx.fillStyle = "#ff0000";
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    function gameLoop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      snake.update();
+
+      if (snake.checkCollision()) {
+        alert("GAME OVER!\nFinal Score: " + score);
+        score = 0;
+        document.getElementById("score").textContent = "SCORE: 0";
+        snake = new Snake();
+        food = getRandomFoodPosition();
+        return;
+      }
+
+      if (snake.eat(food)) {
+        score += 10;
+        document.getElementById("score").textContent = "SCORE: " + score;
+        food = getRandomFoodPosition();
+      }
+
+      snake.draw();
+      drawFood(food);
+    }
+
+    window.addEventListener("keydown", e => snake.changeDirection(e.key));
+
+    function startGame() {
+      snake = new Snake();
+      food = getRandomFoodPosition();
+      setInterval(gameLoop, 100);
+    }
+
+    startGame();
+  </script>
+</body>
+</html>

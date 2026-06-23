@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Snake Game</title>
+<style>
+    /* ---------------------
+       COLOR MODE VARIABLES
+       --------------------- */
+    :root {
+        --bg: #111;
+        --fg: #eee;
+        --canvas-bg: #222;
+        --canvas-border: #0f0;
+        --button-bg: #0f0;
+        --button-hover: #0c0;
+        --overlay-bg: rgba(0,0,0,0.8);
+        --overlay-border: #f00;
+    }
+
+    /* Light mode defaults */
+    @media (prefers-color-scheme: light) {
+        :root {
+            --bg: #f5f5f5;
+            --fg: #000;
+            --canvas-bg: #fff;
+            --canvas-border: #0a0;
+            --button-bg: #0a0;
+            --button-hover: #070;
+            --overlay-bg: rgba(255,255,255,0.85);
+            --overlay-border: #d00;
+        }
+    }
+
+    /* Dark mode override class */
+    body.dark {
+        --bg: #111;
+        --fg: #eee;
+        --canvas-bg: #222;
+        --canvas-border: #0f0;
+        --button-bg: #0f0;
+        --button-hover: #0c0;
+        --overlay-bg: rgba(0,0,0,0.8);
+        --overlay-border: #f00;
+    }
+
+    /* Light mode override class */
+    body.light {
+        --bg: #f5f5f5;
+        --fg: #000;
+        --canvas-bg: #fff;
+        --canvas-border: #0a0;
+        --button-bg: #0a0;
+        --button-hover: #070;
+        --overlay-bg: rgba(255,255,255,0.85);
+        --overlay-border: #d00;
+    }
+
+    /* ---------------------
+       GLOBAL STYLES
+       --------------------- */
+    body {
+        background: var(--bg);
+        color: var(--fg);
+        font-family: Arial, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin-top: 20px;
+        transition: background .3s, color .3s;
+    }
+
+    h1 { margin-bottom: 5px; }
+
+    #controls {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+
+    select, button {
+        padding: 10px 15px;
+        font-size: 16px;
+        border-radius: 5px;
+    }
+
+    button {
+        border: none;
+        background: var(--button-bg);
+        color: #000;
+        cursor: pointer;
+    }
+    button:hover { background: var(--button-hover); }
+
+    #gameCanvas {
+        background: var(--canvas-bg);
+        border: 3px solid var(--canvas-border);
+        transition: background .3s, border .3s;
+    }
+
+    /* Game Over Overlay */
+    #gameOverScreen {
+        position: absolute;
+        width: 400px;
+        height: 400px;
+        background: var(--overlay-bg);
+        border: 3px solid var(--overlay-border);
+        display: none;
+        color: var(--fg);
+        top: 0; left: 0;
+        text-align: center;
+        padding-top: 120px;
+        box-sizing: border-box;
+        transition: all .3s;
+    }
+</style>
+</head>
+<body>
+
+<h1>Snake</h1>
+
+<div id="controls">
+    <button id="startBtn">Start</button>
+
+    <!-- Mode selector -->
+    <select id="modeSelect">
+        <option value="auto">Auto Theme</option>
+        <option value="light">Light Mode</option>
+        <option value="dark">Dark Mode</option>
+    </select>
+
+    <!-- Snake Skin selector -->
+    <select id="skinSelect">
+        <option value="green">Green Classic</option>
+        <option value="red">Red Neon</option>
+        <option value="blue">Blue Ice</option>
+    </select>
+</div>
+
+<div id="ui">
+    Score: <span id="score">1</span>
+</div>
+
+<div id="gameContainer" style="position: relative; margin-top: 10px;">
+    <canvas id="gameCanvas" width="400" height="400"></canvas>
+
+    <!-- Game Over Overlay -->
+    <div id="gameOverScreen">
+        <h2>Game Over</h2>
+        <p>Your Score: <span id="finalScore">0</span></p>
+        <button id="restartBtn">Restart</button>
+    </div>
+</div>
+
+<!-- Sounds -->
+<audio id="eatSound" src="https://actions.google.com/sounds/v1/cartoon/pop.ogg"></audio>
+<audio id="gameOverSound" src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg"></audio>
+
+<script>
+/* CANVAS + GAME VARIABLES */
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+let snake, dx, dy, food, score, gameLoop;
+let gridSize = 20;
+
+/* UI elements */
+const scoreText = document.getElementById("score");
+const finalScore = document.getElementById("finalScore");
+const gameOverScreen = document.getElementById("gameOverScreen");
+
+const eatSound = document.getElementById("eatSound");
+const gameOverSound = document.getElementById("gameOverSound");
+
+/* -------------------------
+   THEME HANDLING
+   ------------------------- */
+const modeSelect = document.getElementById("modeSelect");
+
+// Apply theme on startup based on OS
+applyTheme("auto");
+
+modeSelect.addEventListener("change", () => {
+    applyTheme(modeSelect.value);
+});
+
+function applyTheme(mode) {
+    document.body.classList.remove("light", "dark");
+    if (mode === "light") document.body.classList.add("light");
+    else if (mode === "dark") document.body.classList.add("dark");
+    // auto = let OS decide (no override class)
+}
+
+/* -------------------------
+   SKIN HANDLING
+   ------------------------- */
+const skinSelect = document.getElementById("skinSelect");
+
+function getSnakeColor() {
+    switch (skinSelect.value) {
+        case "red":  return "#ff2020";
+        case "blue": return "#55aaff";
+        default:     return "#00ff00"; // green
+    }
+}
+
+/* -------------------------
+   GAME LOGIC
+   ------------------------- */
+function resetGame() {
+    snake = [{ x: 200, y: 200 }];
+    dx = gridSize;
+    dy = 0;
+    score = 1;
+    spawnFood();
+    updateScore();
+    gameOverScreen.style.display = "none";
+}
+
+function spawnFood() {
+    food = {
+        x: Math.floor(Math.random() * (canvas.width / gridSize)) * gridSize + gridSize / 2,
+        y: Math.floor(Math.random() * (canvas.height / gridSize)) * gridSize + gridSize / 2
+    };
+}
+
+function updateScore() {
+    scoreText.textContent = score;
+}
+
+/* Draw shaded apple */
+function drawApple() {
+    const radius = gridSize / 2 - 2;
+    let gradient = ctx.createRadialGradient(
+        food.x - 3, food.y - 3, 2,
+        food.x, food.y, radius
+    );
+    gradient.addColorStop(0, "#ff9999");
+    gradient.addColorStop(1, "#cc0000");
+
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(food.x, food.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function draw() {
+    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--canvas-bg");
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = getSnakeColor();
+    snake.forEach(s => {
+        ctx.fillRect(s.x, s.y, gridSize, gridSize);
+    });
+
+    drawApple();
+}
+
+function moveSnake() {
+    const head = { x: snake[0].x + dx, y: snake[0].y + dy };
+
+    // Wall collision
+    if (head.x < 0 || head.x >= canvas.width || head.y < 0 || head.y >= canvas.height) {
+        return gameOver();
+    }
+
+    // Self collision
+    for (let i = 0; i < snake.length; i++) {
+        if (head.x === snake[i].x && head.y === snake[i].y) {
+            return gameOver();
+        }
+    }
+
+    snake.unshift(head);
+
+    // Check apple hit
+    if (Math.abs(head.x + gridSize/2 - food.x) < gridSize/2 &&
+        Math.abs(head.y + gridSize/2 - food.y) < gridSize/2) {
+        eatSound.play();
+        score++;
+        updateScore();
+        spawnFood();
+    } else {
+        snake.pop();
+    }
+}
+
+function gameOver() {
+    clearInterval(gameLoop);
+    gameOverSound.play();
+    finalScore.textContent = score;
+    gameOverScreen.style.display = "block";
+}
+
+/* CONTROLS */
+document.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowUp" && dy === 0) { dx = 0; dy = -gridSize; }
+    if (e.key === "ArrowDown" && dy === 0) { dx = 0; dy = gridSize; }
+    if (e.key === "ArrowLeft" && dx === 0) { dx = -gridSize; dy = 0; }
+    if (e.key === "ArrowRight" && dx === 0) { dx = gridSize; dy = 0; }
+});
+
+/* START + RESTART BUTTONS */
+document.getElementById("startBtn").onclick = startGame;
+document.getElementById("restartBtn").onclick = startGame;
+
+function startGame() {
+    resetGame();
+    clearInterval(gameLoop);
+    gameLoop = setInterval(() => {
+        moveSnake();
+        draw();
+    }, 120);
+}
+</script>
+
+</body>
+</html>

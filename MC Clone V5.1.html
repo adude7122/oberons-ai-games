@@ -1,0 +1,1675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Minecraft Alpha Clone</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; overflow: hidden; font-family: monospace; }
+#glCanvas { display: block; width: 100vw; height: 100vh; cursor: none; }
+#ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+#crosshair {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 24px; height: 24px;
+}
+#crosshair::before, #crosshair::after {
+  content: ''; position: absolute; background: rgba(255,255,255,0.85);
+  box-shadow: 0 0 2px rgba(0,0,0,0.8);
+}
+#crosshair::before { width: 2px; height: 24px; left: 11px; top: 0; }
+#crosshair::after  { width: 24px; height: 2px; top: 11px; left: 0; }
+#hotbar {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 4px;
+}
+.hslot {
+  width: 50px; height: 50px;
+  background: rgba(139,139,139,0.7);
+  border: 2px solid rgba(55,55,55,0.9);
+  border-bottom-color: rgba(255,255,255,0.3);
+  border-right-color: rgba(255,255,255,0.3);
+  image-rendering: pixelated;
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+}
+.hslot.active {
+  border: 3px solid #fff;
+  background: rgba(180,180,180,0.7);
+}
+.hslot canvas { image-rendering: pixelated; width: 38px; height: 38px; }
+#info {
+  position: absolute; top: 8px; left: 8px;
+  color: #fff; font-size: 13px; text-shadow: 1px 1px 0 #000;
+  line-height: 1.7;
+}
+#overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.75);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  color: #fff; z-index: 100;
+  pointer-events: all;
+}
+#overlay h1 { font-size: 42px; margin-bottom: 12px; image-rendering: pixelated; letter-spacing: 3px; text-shadow: 3px 3px 0 #555; }
+#overlay p { font-size: 15px; margin: 4px 0; color: #ccc; }
+#startBtn {
+  margin-top: 24px;
+  padding: 12px 40px;
+  font-size: 18px;
+  font-family: monospace;
+  background: #5a5; color: #fff;
+  border: 3px solid #393;
+  border-bottom-color: #282; border-right-color: #282;
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+#startBtn:hover { background: #6b6; }
+#underwaterOverlay {
+  position: fixed; inset: 0;
+  background: rgba(0, 30, 80, 0.0);
+  pointer-events: none;
+  z-index: 10;
+  transition: background 0.3s ease;
+}
+#underwaterOverlay.active {
+  background: rgba(0, 30, 100, 0.45);
+  animation: underwaterPulse 3s ease-in-out infinite;
+}
+@keyframes underwaterPulse {
+  0%,100% { background: rgba(0, 30, 100, 0.42); }
+  50%      { background: rgba(0, 45, 120, 0.55); }
+}
+  position: absolute; bottom: 76px; left: 50%;
+  transform: translateX(-50%);
+  color: #fff; font-size: 14px;
+  text-shadow: 1px 1px 0 #000;
+  white-space: nowrap;
+}
+/* ── INVENTORY / CREATIVE MENU ── */
+#invScreen {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.55);
+  align-items: center; justify-content: center;
+  z-index: 200; pointer-events: all;
+  font-family: monospace; flex-direction: column; gap: 8px;
+}
+#invScreen.open { display: flex; }
+.inv-panel {
+  background: #c6c6c6;
+  border: 3px solid #fff; border-right-color: #555; border-bottom-color: #555;
+  padding: 10px 12px; image-rendering: pixelated; user-select: none;
+}
+.inv-panel h2 { font-size: 12px; color: #333; margin-bottom: 7px; text-transform: uppercase; letter-spacing: 1px; }
+.slot-grid { display: flex; flex-wrap: wrap; gap: 3px; }
+.slot {
+  width: 44px; height: 44px; background: #8b8b8b;
+  border: 2px solid #555; border-right-color: #fff; border-bottom-color: #fff;
+  position: relative; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  image-rendering: pixelated;
+}
+.slot:hover { background: #a0a0a0; }
+.slot.drag-over { border-color: #ff0 !important; background: #bba !important; }
+.slot canvas { image-rendering: pixelated; width: 32px; height: 32px; pointer-events: none; }
+.slot-name-tip {
+  position: fixed; background: rgba(0,0,0,0.8); color: #fff;
+  font-size: 11px; padding: 3px 7px; pointer-events: none; z-index: 300;
+  border: 1px solid #555; display: none;
+}
+#creativeTabs { display: flex; gap: 2px; margin-bottom: 5px; }
+.ctab {
+  padding: 4px 12px; font-size: 11px; font-family: monospace;
+  background: #999; border: 2px solid #555; border-right-color: #ddd; border-bottom-color: #ddd;
+  cursor: pointer; color: #222;
+}
+.ctab.active { background: #c6c6c6; }
+#invHotbar { display: flex; gap: 3px; }
+.slot.active-slot { border-color: #ff0 !important; }
+#dragGhost {
+  position: fixed; pointer-events: none; z-index: 999;
+  width: 40px; height: 40px; display: none; image-rendering: pixelated;
+}
+</style>
+</head>
+<body>
+<canvas id="glCanvas"></canvas>
+<div id="ui">
+  <div id="crosshair"></div>
+  <div id="info" id="info"></div>
+  <div id="hotbar"></div>
+  <div id="blockLabel"></div>
+</div>
+<div id="underwaterOverlay"></div>
+
+<!-- Tooltip -->
+<div class="slot-name-tip" id="slotTip"></div>
+
+<!-- Inventory / Creative Screen -->
+<div id="invScreen" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); align-items:center; justify-content:center; z-index:200; flex-direction:column; gap:8px; font-family:monospace;">
+  <div class="inv-panel">
+    <div id="creativeTabs" style="display:flex;gap:3px;margin-bottom:6px;">
+      <div class="ctab active" data-tab="all">All</div>
+      <div class="ctab" data-tab="building">Building</div>
+      <div class="ctab" data-tab="nature">Nature</div>
+      <div class="ctab" data-tab="misc">Misc</div>
+      <div class="ctab" data-tab="redstone">Redstone</div>
+    </div>
+    <h2>Creative Items — drag to inventory or hotbar</h2>
+    <div class="slot-grid" id="creativeGrid" style="max-width:360px;"></div>
+  </div>
+  <div class="inv-panel">
+    <h2>Inventory (27 slots)</h2>
+    <div class="slot-grid" id="invGrid" style="width:360px;"></div>
+  </div>
+  <div class="inv-panel">
+    <h2>Hotbar</h2>
+    <div style="display:flex;gap:3px;" id="invHotbarRow"></div>
+  </div>
+</div>
+<div id="overlay">
+  <h1 id="overlayTitle">&#x26F0; MINECRAFT</h1>
+  <p>Alpha 1.1 Clone &mdash; WebGL</p>
+  <br>
+  <p>WASD &mdash; Move &nbsp; Mouse &mdash; Look</p>
+  <p>Space &mdash; Jump &nbsp; Shift &mdash; Sneak</p>
+  <p>Left Click &mdash; Break &nbsp; Right Click &mdash; Place</p>
+  <p>1-9 &mdash; Select Block &nbsp; Scroll &mdash; Cycle &nbsp; <b>E</b> &mdash; Inventory</p>
+  <button id="startBtn">Play</button>
+</div>
+<script>
+const TERRAIN_B64 = 'data:image/png;base64,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';
+
+// ═══════════════════════════════════════════════
+//  TEXTURE ATLAS CONFIG  (16×16 tiles, 16px each)
+// ═══════════════════════════════════════════════
+const T = 1/16; // one tile in UV space
+function uv(col, row) {
+  const eps = 0.001;
+  return [
+    (col*T)+eps,   (row*T)+eps,
+    ((col+1)*T)-eps, (row*T)+eps,
+    ((col+1)*T)-eps, ((row+1)*T)-eps,
+    (col*T)+eps,   ((row+1)*T)-eps,
+  ];
+}
+// uvFlipV: same tile but V coordinates swapped so top-of-world maps to top-of-tile
+// Needed for vertically asymmetric side textures (grass side, snow side)
+function uvFlipV(col, row) {
+  const eps = 0.001;
+  return [
+    (col*T)+eps,     ((row+1)*T)-eps,
+    ((col+1)*T)-eps, ((row+1)*T)-eps,
+    ((col+1)*T)-eps, (row*T)+eps,
+    (col*T)+eps,     (row*T)+eps,
+  ];
+}
+
+// Block IDs
+const AIR=0, GRASS=1, DIRT=2, STONE=3, COBBLESTONE=4,
+      SAND=5, GRAVEL=6, LOG=7, LEAVES=8, PLANKS=9,
+      GLASS=10, WATER=11, BEDROCK=12, SNOW=13, ICE=14,
+      WOOL=15, BRICK=16, TNT=17, CHEST=18, FURNACE=19,
+      IRON=20, GOLD=21, DIAMOND=22,
+      REDSTONE_DUST=23, REDSTONE_TORCH=24, LEVER=25, REDSTONE_LAMP=26, REDSTONE_LAMP_ON=27,
+      REDSTONE_TORCH_OFF=28;
+
+// [top, bottom, north, south, east, west] → [col, row] pairs
+const BLOCK_UVS = {
+  [GRASS]:       { top:uv(0,0), bottom:uv(2,0), side:uvFlipV(3,0) },
+  [DIRT]:        { all:uv(2,0) },
+  [STONE]:       { all:uv(1,0) },
+  [COBBLESTONE]: { all:uv(0,1) },
+  [SAND]:        { all:uv(2,1) },
+  [GRAVEL]:      { all:uv(3,1) },
+  [LOG]:         { top:uv(5,1), bottom:uv(5,1), side:uv(4,1) },
+  [LEAVES]:      { all:uv(4,3) },
+  [PLANKS]:      { all:uv(4,0) },
+  [GLASS]:       { all:uv(1,3) },
+  [WATER]:       { all:uv(3,4) },
+  [BEDROCK]:     { all:uv(1,1) },
+  [SNOW]:        { top:uv(2,4), bottom:uv(2,0), side:uvFlipV(4,4) },
+  [ICE]:         { all:uv(3,4) },
+  [WOOL]:        { all:uv(0,4) },
+  [BRICK]:       { all:uv(7,0) },
+  [TNT]:         { top:uv(9,0), bottom:uv(10,0), side:uv(8,0) },
+  [CHEST]:       { top:uv(9,1), bottom:uv(9,1), side:uv(11,1), front:uv(10,1) },
+  [FURNACE]:     { top:uv(1,0), bottom:uv(13,2), side:uvFlipV(13,2), front:uvFlipV(12,2), icon:uv(12,2) },
+  [IRON]:        { all:uv(6,1) },
+  [GOLD]:        { all:uv(7,1) },
+  [DIAMOND]:     { all:uv(8,1) },
+  // Redstone dust: atlas col 4 row 10 is the cross/wire overlay
+  [REDSTONE_DUST]:    { all:uv(4,6) },
+  // Redstone torch lit: col 3 row 6
+  [REDSTONE_TORCH]:     { all:uv(3,6) },
+  [REDSTONE_TORCH_OFF]: { all:uv(3,7) },
+  // Lever: use stone plate col 0 row 6 (same as torch base)
+  [LEVER]:            { all:uv(0,6) },
+  // Lamp off: use a dark block, col 3 row 13 (netherrack-ish)
+  [REDSTONE_LAMP]:    { all:uv(6,6) },
+  [REDSTONE_LAMP_ON]: { all:uv(7,6) },
+};
+
+const BLOCK_NAMES = ['Air','Grass','Dirt','Stone','Cobblestone','Sand','Gravel',
+  'Log','Leaves','Planks','Glass','Water','Bedrock','Snow','Ice','Wool','Brick',
+  'TNT','Chest','Furnace','Iron Block','Gold Block','Diamond Block',
+  'Redstone Dust','Redstone Torch','Lever','Redstone Lamp','Redstone Lamp (On)','Redstone Torch (Off)'];
+
+function getFaceUV(blockId, face) {
+  const def = BLOCK_UVS[blockId] || BLOCK_UVS[STONE];
+  if (face === 0) return def.top    || def.all || uv(1,0); // top
+  if (face === 1) return def.bottom || def.all || uv(1,0); // bottom
+  if (face === 4) return def.front  || def.side || def.all || uv(1,0); // north (front)
+  return def.side || def.all || uv(1,0);
+}
+
+function isTransparent(id) { return id===AIR || id===GLASS || id===WATER || id===LEAVES || id===REDSTONE_DUST || id===REDSTONE_TORCH || id===REDSTONE_TORCH_OFF || id===LEVER; }
+function isSolid(id) { return id !== AIR && id !== WATER && id !== REDSTONE_DUST && id !== REDSTONE_TORCH && id !== REDSTONE_TORCH_OFF && id !== LEVER; }
+function isHittable(id) { return id !== AIR; } // everything except air can be targeted/broken
+
+// ═══════════════════════════════════════════════
+//  WORLD
+// ═══════════════════════════════════════════════
+const CHUNK_SIZE = 16;
+const WORLD_HEIGHT = 64;
+const SEA_LEVEL = 32;
+
+class World {
+  constructor() {
+    this.chunks = new Map();
+    this.modifiedChunks = new Set();
+  }
+  chunkKey(cx, cz) { return `${cx},${cz}`; }
+  getChunk(cx, cz) {
+    const k = this.chunkKey(cx, cz);
+    if (!this.chunks.has(k)) this.chunks.set(k, new Uint8Array(CHUNK_SIZE*WORLD_HEIGHT*CHUNK_SIZE));
+    return this.chunks.get(k);
+  }
+  getBlock(x, y, z) {
+    if (y<0||y>=WORLD_HEIGHT) return y<0?BEDROCK:AIR;
+    const cx=Math.floor(x/CHUNK_SIZE), cz=Math.floor(z/CHUNK_SIZE);
+    const k = this.chunkKey(cx, cz);
+    if (!this.chunks.has(k)) return STONE; // ungenerated neighbor = treat as solid
+    const lx=((x%CHUNK_SIZE)+CHUNK_SIZE)%CHUNK_SIZE;
+    const lz=((z%CHUNK_SIZE)+CHUNK_SIZE)%CHUNK_SIZE;
+    return this.chunks.get(k)[lx + lz*CHUNK_SIZE + y*CHUNK_SIZE*CHUNK_SIZE];
+  }
+  setBlock(x, y, z, id) {
+    if (y<0||y>=WORLD_HEIGHT) return;
+    const cx=Math.floor(x/CHUNK_SIZE), cz=Math.floor(z/CHUNK_SIZE);
+    const lx=((x%CHUNK_SIZE)+CHUNK_SIZE)%CHUNK_SIZE;
+    const lz=((z%CHUNK_SIZE)+CHUNK_SIZE)%CHUNK_SIZE;
+    this.getChunk(cx,cz)[lx + lz*CHUNK_SIZE + y*CHUNK_SIZE*CHUNK_SIZE] = id;
+    this.modifiedChunks.add(this.chunkKey(cx,cz));
+    // mark neighbors
+    if (lx===0) this.modifiedChunks.add(this.chunkKey(cx-1,cz));
+    if (lx===CHUNK_SIZE-1) this.modifiedChunks.add(this.chunkKey(cx+1,cz));
+    if (lz===0) this.modifiedChunks.add(this.chunkKey(cx,cz-1));
+    if (lz===CHUNK_SIZE-1) this.modifiedChunks.add(this.chunkKey(cx,cz+1));
+  }
+  // Write directly to chunk data without marking dirty - for use during generation only.
+  // IMPORTANT: only writes if the chunk already exists - never creates a new chunk,
+  // because that would trick updateChunks into thinking the neighbor is generated.
+  rawSetBlock(x, y, z, id) {
+    if (y<0||y>=WORLD_HEIGHT) return;
+    const cx=Math.floor(x/CHUNK_SIZE), cz=Math.floor(z/CHUNK_SIZE);
+    const k = this.chunkKey(cx, cz);
+    if (!this.chunks.has(k)) return; // don't create phantom chunks
+    const lx=((x%CHUNK_SIZE)+CHUNK_SIZE)%CHUNK_SIZE;
+    const lz=((z%CHUNK_SIZE)+CHUNK_SIZE)%CHUNK_SIZE;
+    this.chunks.get(k)[lx + lz*CHUNK_SIZE + y*CHUNK_SIZE*CHUNK_SIZE] = id;
+  }
+  generate(cx, cz) {
+    // Simple noise-based terrain - use rawSetBlock to avoid touching modifiedChunks
+    // updateChunks() will handle marking dirty after ALL chunks are generated
+    for (let lx=0; lx<CHUNK_SIZE; lx++) {
+      for (let lz=0; lz<CHUNK_SIZE; lz++) {
+        const wx = cx*CHUNK_SIZE+lx, wz = cz*CHUNK_SIZE+lz;
+        const h = this.heightAt(wx, wz);
+        for (let y=0; y<WORLD_HEIGHT; y++) {
+          let id = AIR;
+          if (y===0) id = BEDROCK;
+          else if (y < h-4) id = STONE;
+          else if (y < h-1) id = DIRT;
+          else if (y === h-1) {
+            id = h-1 < SEA_LEVEL ? SAND : GRASS;
+          }
+          if (id !== AIR) {
+            const chunk = this.getChunk(cx,cz);
+            chunk[lx + lz*CHUNK_SIZE + y*CHUNK_SIZE*CHUNK_SIZE] = id;
+          }
+        }
+        // Water fill
+        for (let y=h; y<SEA_LEVEL; y++) {
+          const chunk = this.getChunk(cx,cz);
+          chunk[lx + lz*CHUNK_SIZE + y*CHUNK_SIZE*CHUNK_SIZE] = WATER;
+        }
+        // Trees: seeded by world position so same tree always generates the same way,
+        // even when leaves cross chunk borders into a neighbor's generate() call.
+        const treeRng = (Math.sin(wx * 127.1 + wz * 311.7) * 43758.5453) % 1;
+        const treeRng2 = (Math.sin(wx * 269.5 + wz * 183.3) * 43758.5453) % 1;
+        if (h > SEA_LEVEL && Math.abs(treeRng) < 0.012) {
+          const th = 4 + Math.floor(Math.abs(treeRng2) * 3);
+          for (let i=0; i<th; i++) this.rawSetBlock(wx, h-1+i, wz, LOG);
+          for (let dx=-2;dx<=2;dx++) for (let dz=-2;dz<=2;dz++) for (let dy=0;dy<=2;dy++) {
+            if (Math.abs(dx)+Math.abs(dz)+Math.abs(dy) > 3) continue;
+            if (dx===0&&dz===0&&dy<=0) continue;
+            this.rawSetBlock(wx+dx, h-1+th+dy-1, wz+dz, LEAVES);
+          }
+        }
+      }
+    }
+    // Do NOT add to modifiedChunks here - updateChunks handles that after all neighbors exist
+  }
+  heightAt(x, z) {
+    // Multi-octave noise
+    let h = SEA_LEVEL;
+    h += noise(x*0.03, z*0.03) * 10;
+    h += noise(x*0.08, z*0.08) * 5;
+    h += noise(x*0.2,  z*0.2)  * 2;
+    return Math.max(2, Math.min(WORLD_HEIGHT-2, Math.floor(h)));
+  }
+}
+
+// Simple 2D value noise
+function noise(x, z) {
+  const ix=Math.floor(x), iz=Math.floor(z);
+  const fx=x-ix, fz=z-iz;
+  const ux=fx*fx*(3-2*fx), uz=fz*fz*(3-2*fz);
+  const a=hash2(ix,iz), b=hash2(ix+1,iz), c=hash2(ix,iz+1), d=hash2(ix+1,iz+1);
+  return a + (b-a)*ux + (c-a)*uz + (d-b+a-c)*ux*uz;
+}
+function hash2(x, z) {
+  let n = x*374761393 + z*668265263;
+  n = (n^(n>>13))*1274126177;
+  return ((n^(n>>16)) & 0xffff) / 0xffff * 2 - 1;
+}
+
+// ═══════════════════════════════════════════════
+//  WEBGL RENDERER
+// ═══════════════════════════════════════════════
+const canvas = document.getElementById('glCanvas');
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+const gl = canvas.getContext('webgl', { antialias: false, alpha: false });
+if (!gl) alert('WebGL not supported!');
+
+const vsSource = `
+attribute vec3 aPos;
+attribute vec2 aUV;
+attribute float aLight;
+attribute float aAlpha;
+attribute vec3 aTint;
+uniform mat4 uMVP;
+varying vec2 vUV;
+varying float vLight;
+varying float vAlpha;
+varying vec3 vTint;
+void main() {
+  gl_Position = uMVP * vec4(aPos, 1.0);
+  vUV = aUV;
+  vLight = aLight;
+  vAlpha = aAlpha;
+  vTint = aTint;
+}`;
+
+const fsSource = `
+precision mediump float;
+varying vec2 vUV;
+varying float vLight;
+varying float vAlpha;
+varying vec3 vTint;
+uniform sampler2D uTex;
+void main() {
+  vec4 col = texture2D(uTex, vUV);
+  if (col.a < 0.1) discard;
+  float brightness = dot(col.rgb, vec3(0.299, 0.587, 0.114));
+  // vTint = [0,0,1.0]: bright-discard mode (glass, lit torch, lever) - discard dark pixels
+  if (vTint.b > 0.9 && vTint.r < 0.1) {
+    if (brightness < 0.15) discard;
+    gl_FragColor = vec4(col.rgb * vLight, vAlpha);
+  }
+  // vTint = [0,0,0.5]: low-discard mode (off torch) - only discard near-black pixels
+  else if (vTint.b > 0.4 && vTint.b < 0.7 && vTint.r < 0.1) {
+    if (brightness < 0.04) discard;
+    gl_FragColor = vec4(col.rgb * vLight, vAlpha);
+  }
+  // vTint.r > 0.1 || g > 0.1: colored tint (lamp, redstone dust)
+  else if (vTint.r > 0.1 || vTint.g > 0.1) {
+    vec3 rgb = mix(col.rgb, vTint, 0.5) * vLight;
+    gl_FragColor = vec4(rgb, col.a * vAlpha);
+  }
+  else {
+    gl_FragColor = vec4(col.rgb * vLight, col.a * vAlpha);
+  }
+}`;
+
+function compileShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(s);
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, compileShader(gl.VERTEX_SHADER, vsSource));
+gl.attachShader(prog, compileShader(gl.FRAGMENT_SHADER, fsSource));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+const aPos   = gl.getAttribLocation(prog, 'aPos');
+const aUV    = gl.getAttribLocation(prog, 'aUV');
+const aLight = gl.getAttribLocation(prog, 'aLight');
+const aAlpha = gl.getAttribLocation(prog, 'aAlpha');
+const aTint  = gl.getAttribLocation(prog, 'aTint');
+const uMVP   = gl.getUniformLocation(prog, 'uMVP');
+
+// Texture
+const texture = gl.createTexture();
+const img = new Image();
+img.onload = () => {
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  textureLoaded = true;
+};
+img.src = TERRAIN_B64;
+let textureLoaded = false;
+
+// ═══════════════════════════════════════════════
+//  CHUNK MESH BUILDER
+// ═══════════════════════════════════════════════
+// Face normals: +Y,-Y,+Z,-Z,+X,-X
+const FACES = [
+  { dir:[0,1,0],  corners:[[0,1,0],[1,1,0],[1,1,1],[0,1,1]], faceIdx:0, light:1.0 },  // top
+  { dir:[0,-1,0], corners:[[0,0,1],[1,0,1],[1,0,0],[0,0,0]], faceIdx:1, light:0.5 },  // bottom
+  { dir:[0,0,1],  corners:[[0,0,1],[1,0,1],[1,1,1],[0,1,1]], faceIdx:2, light:0.8 },  // south
+  { dir:[0,0,-1], corners:[[1,0,0],[0,0,0],[0,1,0],[1,1,0]], faceIdx:3, light:0.8 },  // north
+  { dir:[1,0,0],  corners:[[1,0,1],[1,0,0],[1,1,0],[1,1,1]], faceIdx:4, light:0.9 },  // east
+  { dir:[-1,0,0], corners:[[0,0,0],[0,0,1],[0,1,1],[0,1,0]], faceIdx:5, light:0.9 },  // west
+];
+
+const chunkMeshes = new Map();
+
+function buildChunkMesh(world, cx, cz) {
+  // Block alpha values: 1.0 = opaque, <1 = transparent
+  function blockAlpha(id) {
+    if (id === WATER)  return 0.65;
+    if (id === GLASS)  return 0.45;
+    if (id === LEAVES) return 1.0;
+    if (id === REDSTONE_DUST)  return 0.9;
+    if (id === REDSTONE_TORCH) return 1.0;
+    if (id === LEVER)  return 1.0;
+    return 1.0;
+  }
+  function blockTint(id) {
+    if (id === GLASS)            return [0.0, 0.0, 1.0]; // glass brightness-discard flag
+    if (id === REDSTONE_LAMP_ON) return [0.0, 0.0, 0.0]; // no tint, show atlas texture as-is
+    return [0.0, 0.0, 0.0];
+  }
+  function isTransparentBlock(id) { return id === WATER || id === GLASS; }
+  function isFlatBlock(id) { return id === REDSTONE_DUST; }
+  function isTorchBlock(id) { return id === REDSTONE_TORCH || id === REDSTONE_TORCH_OFF; }
+
+  // Wall placement: stores the face normal the torch/lever was placed against
+  // key = "x,y,z", value = [dx,dy,dz] of the wall face (e.g. [1,0,0] = placed on east wall)
+  if (!window.wallFaces) window.wallFaces = {};
+
+  // Build two sets: opaque faces and transparent faces
+  const oVerts=[], oUvs=[], oLights=[], oAlphas=[], oTints=[], oIndices=[];
+  const tVerts=[], tUvs=[], tLights=[], tAlphas=[], tTints=[], tIndices=[];
+  let ovi=0, tvi=0;
+
+  function pushFace(arr_v, arr_uv, arr_l, arr_a, arr_t, arr_i, vi_ref, verts4, uvs4, light, alpha, tint) {
+    for (let i=0; i<4; i++) {
+      arr_v.push(verts4[i][0], verts4[i][1], verts4[i][2]);
+      arr_uv.push(uvs4[i][0], uvs4[i][1]);
+      arr_l.push(light);
+      arr_a.push(alpha);
+      arr_t.push(tint[0], tint[1], tint[2]);
+    }
+    const v = vi_ref[0];
+    arr_i.push(v,v+1,v+2, v,v+2,v+3);
+    vi_ref[0] += 4;
+  }
+
+  for (let lx=0; lx<CHUNK_SIZE; lx++) {
+    for (let lz=0; lz<CHUNK_SIZE; lz++) {
+      for (let ly=0; ly<WORLD_HEIGHT; ly++) {
+        const wx=cx*CHUNK_SIZE+lx, wz=cz*CHUNK_SIZE+lz;
+        const id = world.getBlock(wx,ly,wz);
+        if (id===AIR) continue;
+        const alpha = blockAlpha(id);
+        const tint  = blockTint(id);
+        const isTransBlock = isTransparentBlock(id);
+
+        // ── Redstone dust: directional flat quads ──
+        if (isFlatBlock(id)) {
+          const y = ly + 0.02;
+          // Check which 4 horizontal neighbors are dust or solid redstone sources
+          function dustConnects(bx, bz) {
+            const nb = world.getBlock(bx, ly, bz);
+            return nb === REDSTONE_DUST || nb === REDSTONE_TORCH || nb === REDSTONE_TORCH_OFF ||
+                   nb === LEVER || nb === REDSTONE_LAMP || nb === REDSTONE_LAMP_ON;
+          }
+          const cN = dustConnects(wx,   wz-1); // -Z
+          const cS = dustConnects(wx,   wz+1); // +Z
+          const cE = dustConnects(wx+1, wz  ); // +X
+          const cW = dustConnects(wx-1, wz  ); // -X
+          const numConn = (cN?1:0)+(cS?1:0)+(cE?1:0)+(cW?1:0);
+
+          // Power state
+          const powered = isDustPoweredSrc(wx, ly, wz, 8);
+          // Tint: bright red if powered, dark red if not
+          const dustTint = powered ? [1.0, 0.05, 0.05] : [0.35, 0.0, 0.0];
+
+          // Helper: push a flat quad
+          function pushDustQuad(x0,z0,x1,z1, uvTile) {
+            const raw = uvTile;
+            const uvp = [[raw[0],raw[1]],[raw[2],raw[3]],[raw[4],raw[5]],[raw[6],raw[7]]];
+            const verts4 = [[x0,y,z0],[x1,y,z0],[x1,y,z1],[x0,y,z1]];
+            const r=[ovi];
+            pushFace(oVerts,oUvs,oLights,oAlphas,oTints,oIndices,r,verts4,uvp,1.0,1.0,dustTint);
+            ovi=r[0];
+          }
+
+          // Atlas tiles (powered / unpowered):
+          // cross:      uv(4,6) / uv(4,5)
+          // straight NS (along Z): use uv(5,6) rotated — we'll use cross for simplicity on junctions
+          // line NS:    uv(5,6) mapped top-to-bottom
+          // line EW:    uv(5,6) mapped left-to-right (same tile, different quad orientation)
+          // dot (no connections): uv(4,6) center portion
+
+          const uvCross  = powered ? uv(4,6) : uv(4,5);
+          const uvLine   = powered ? uv(5,6) : uv(5,5);
+
+          if (numConn === 0) {
+            // Isolated dot — just draw cross centered
+            pushDustQuad(wx, wz, wx+1, wz+1, uvCross);
+          } else if (numConn === 1 || numConn === 2) {
+            // Straight or elbow — draw lines for each connected direction
+            // NS straight
+            if ((cN || cS) && !cE && !cW) {
+              // Line running N-S (along Z axis) — use uvLine quad full width
+              pushDustQuad(wx, wz, wx+1, wz+1, uvLine);
+            }
+            // EW straight
+            else if ((cE || cW) && !cN && !cS) {
+              // Line running E-W (along X axis) — rotate UV by swapping X/Z on quad
+              const raw = uvLine;
+              const uvp = [[raw[0],raw[1]],[raw[2],raw[3]],[raw[4],raw[5]],[raw[6],raw[7]]];
+              // Rotate 90 deg: swap quad corners
+              const verts4 = [[wx,y,wz+1],[wx,y,wz],[wx+1,y,wz],[wx+1,y,wz+1]];
+              const r=[ovi];
+              pushFace(oVerts,oUvs,oLights,oAlphas,oTints,oIndices,r,verts4,uvp,1.0,1.0,dustTint);
+              ovi=r[0];
+            }
+            else {
+              // Corner or T — draw cross
+              pushDustQuad(wx, wz, wx+1, wz+1, uvCross);
+            }
+          } else {
+            // 3 or 4 connections — draw cross
+            pushDustQuad(wx, wz, wx+1, wz+1, uvCross);
+          }
+          continue;
+        }
+
+        // ── Lever ──
+        if (id === LEVER) {
+          const on = !!leverStates[`${wx},${ly},${wz}`];
+          const cx = wx + 0.5, cz = wz + 0.5;
+
+          // Base: small stone slab. Use stone UV uv(1,0).
+          // Helper to convert flat uv() array to [[u,v],...] pairs for pushFace
+          const toUVp = (raw) => [[raw[0],raw[1]],[raw[2],raw[3]],[raw[4],raw[5]],[raw[6],raw[7]]];
+          const stoneUVp = toUVp(uv(1,0));
+          const bh = 0.2;  // slab height
+          const bw = 0.3;  // slab half-width
+          const baseTop = [[cx-bw,ly+bh,cz-bw],[cx+bw,ly+bh,cz-bw],[cx+bw,ly+bh,cz+bw],[cx-bw,ly+bh,cz+bw]];
+          { const r=[ovi]; pushFace(oVerts,oUvs,oLights,oAlphas,oTints,oIndices,r,baseTop,stoneUVp,1.0,1.0,[0,0,0]); ovi=r[0]; }
+          const baseSides = [
+            [[cx-bw,ly,cz-bw],[cx+bw,ly,cz-bw],[cx+bw,ly+bh,cz-bw],[cx-bw,ly+bh,cz-bw]],
+            [[cx-bw,ly,cz+bw],[cx+bw,ly,cz+bw],[cx+bw,ly+bh,cz+bw],[cx-bw,ly+bh,cz+bw]],
+            [[cx-bw,ly,cz-bw],[cx-bw,ly,cz+bw],[cx-bw,ly+bh,cz+bw],[cx-bw,ly+bh,cz-bw]],
+            [[cx+bw,ly,cz-bw],[cx+bw,ly,cz+bw],[cx+bw,ly+bh,cz+bw],[cx+bw,ly+bh,cz-bw]],
+          ];
+          for (const q of baseSides) { const r=[ovi]; pushFace(oVerts,oUvs,oLights,oAlphas,oTints,oIndices,r,q,stoneUVp,0.75,1.0,[0,0,0]); ovi=r[0]; }
+
+          // Handle: use lever sprite from atlas col=0,row=6, same as torch
+          // Use the exact same full-tile UV + discard-dark [0,0,1] as floor torches.
+          // Tilt: on=leans toward +Z, off=leans toward -Z
+          const tilt = on ? 0.28 : -0.28;
+          const leverTile = uv(0, 6);
+          const lUVp = toUVp(leverTile);
+          // Handle: start below the slab top so discard-dark doesn't create a gap
+          const hh = 0.5;
+          const hw2 = 0.5;
+          const yBase = ly - 0.05; // start slightly below floor so sprite base is visible
+          const handleQuads = [
+            [[cx-hw2, yBase, cz      ],[cx+hw2, yBase, cz      ],
+             [cx+hw2, yBase+hh, cz+tilt],[cx-hw2, yBase+hh, cz+tilt]],
+            [[cx,     yBase, cz-hw2  ],[cx,     yBase, cz+hw2  ],
+             [cx,     yBase+hh, cz+hw2+tilt],[cx, yBase+hh, cz-hw2+tilt]],
+          ];
+          for (const q of handleQuads) { const r=[ovi]; pushFace(oVerts,oUvs,oLights,oAlphas,oTints,oIndices,r,q,lUVp,1.0,1.0,[0,0,1]); ovi=r[0]; }
+          continue;
+        }
+
+        // ── Redstone torch: two crossed billboard quads ──
+        if (id === REDSTONE_TORCH || id === REDSTONE_TORCH_OFF) {
+          const isOff = id === REDSTONE_TORCH_OFF;
+          const isLit = !isOff;
+          const tc = 3;
+          const tr = isOff ? 7 : 6;
+          const tileSz = T;
+          const tileU0 = tc * tileSz;
+          const tileV0 = tr * tileSz;
+          const lt = isOff ? 0.7 : 1.0;
+          // off torch uses low-discard tint so its dim sprite isn't over-discarded
+
+          const wallFace = window.wallFaces[`${wx},${ly},${wz}`];
+
+          if (wallFace && (wallFace[0] !== 0 || wallFace[2] !== 0)) {
+            // Wall-mounted: take the exact same floor torch quads and shear them.
+            // wallFace normal points AWAY from the wall (toward open air).
+            // The torch block occupies the cell at wx,ly,wz — the wall is on the
+            // side opposite to wallFace, i.e. the wall face is at:
+            //   wx + (wfx<0 ? 1 : 0)  for X walls
+            //   wz + (wfz<0 ? 1 : 0)  for Z walls
+            // Shear: every point gets shifted by wallFace * lerp(bottomShift, topShift, y_frac)
+            //   bottom (y=ly)   : shift toward wall  (negative wallFace direction)
+            //   top    (y=ly+h) : shift away from wall (positive wallFace direction)
+            const [wfx,,wfz] = wallFace;
+            const h = 0.8;
+            const fullUV = [[tileU0 + tileSz*0.001, tileV0 + tileSz*0.999],
+                            [tileU0 + tileSz*0.999, tileV0 + tileSz*0.999],
+                            [tileU0 + tileSz*0.999, tileV0 + tileSz*0.001],
+                            [tileU0 + tileSz*0.001, tileV0 + tileSz*0.001]];
+            // Shear offsets along the wall normal:
+            //   base sits against the wall face (0.5 units toward wall from block center)
+            //   top  leans out by 0.2 units from block center
+            // base sits on the wall face (0.5 toward wall from block center),
+            // top leans out 0.2 from block center. Raise base off floor by 0.1.
+            const bs = -0.5; // bottom shift: onto the wall face
+            const ts =  0.2; // top shift: leaning out
+            const yb = ly + 0.1; // base height: slightly above floor
+            const quads = [
+              [[wx     + wfx*bs, yb,   wz+0.5 + wfz*bs],
+               [wx+1   + wfx*bs, yb,   wz+0.5 + wfz*bs],
+               [wx+1   + wfx*ts, yb+h, wz+0.5 + wfz*ts],
+               [wx     + wfx*ts, yb+h, wz+0.5 + wfz*ts]],
+              [[wx+0.5 + wfx*bs, yb,   wz     + wfz*bs],
+               [wx+0.5 + wfx*bs, yb,   wz+1   + wfz*bs],
+               [wx+0.5 + wfx*ts, yb+h, wz+1   + wfz*ts],
+               [wx+0.5 + wfx*ts, yb+h, wz     + wfz*ts]],
+            ];
+            for (const q of quads) {
+              const ovi_ref=[ovi];
+              pushFace(oVerts,oUvs,oLights,oAlphas,oTints,oIndices,ovi_ref,q,fullUV,lt,1.0,isOff?[0.0,0.0,0.5]:[0.0,0.0,1.0]);
+              ovi=ovi_ref[0];
+            }
+          } else {
+            // Floor-mounted: original full-width crossed quads with discard-dark shader
+            const h = 0.8;
+            const fullUV = [[tileU0 + tileSz*0.001, tileV0 + tileSz*0.999],
+                            [tileU0 + tileSz*0.999, tileV0 + tileSz*0.999],
+                            [tileU0 + tileSz*0.999, tileV0 + tileSz*0.001],
+                            [tileU0 + tileSz*0.001, tileV0 + tileSz*0.001]];
+            const quads = [
+              [[wx,    ly,   wz+0.5],[wx+1,  ly,   wz+0.5],[wx+1,  ly+h, wz+0.5],[wx,    ly+h, wz+0.5]],
+              [[wx+0.5,ly,   wz    ],[wx+0.5,ly,   wz+1  ],[wx+0.5,ly+h, wz+1  ],[wx+0.5,ly+h, wz    ]]
+            ];
+            for (const q of quads) {
+              const ovi_ref=[ovi];
+              pushFace(oVerts,oUvs,oLights,oAlphas,oTints,oIndices,ovi_ref,q,fullUV,lt,1.0,isOff?[0.0,0.0,0.5]:[0.0,0.0,1.0]);
+              ovi=ovi_ref[0];
+            }
+          }
+          continue;
+        }
+
+        for (const face of FACES) {
+          const nx=wx+face.dir[0], ny=ly+face.dir[1], nz=wz+face.dir[2];
+          const nb = world.getBlock(nx,ny,nz);
+          if (id===WATER && nb===WATER) continue;
+          if (id===GLASS && nb===GLASS) continue;
+          if (!isTransparent(nb)) continue;
+
+          const uvCoords = getFaceUV(id, face.faceIdx);
+          const uvPairs = [[uvCoords[0],uvCoords[1]],[uvCoords[2],uvCoords[3]],[uvCoords[4],uvCoords[5]],[uvCoords[6],uvCoords[7]]];
+          const lightVal = face.light * (id===WATER ? 0.85 : id===REDSTONE_LAMP_ON ? 1.0 : 1.0);
+
+          const corners4 = face.corners.map(c => [wx+c[0], ly+c[1], wz+c[2]]);
+
+          if (isTransBlock) {
+            const tvi_ref=[tvi];
+            pushFace(tVerts,tUvs,tLights,tAlphas,tTints,tIndices,tvi_ref,corners4,uvPairs,lightVal,alpha,tint);
+            tvi=tvi_ref[0];
+          } else {
+            const ovi_ref=[ovi];
+            pushFace(oVerts,oUvs,oLights,oAlphas,oTints,oIndices,ovi_ref,corners4,uvPairs,lightVal,alpha,tint);
+            ovi=ovi_ref[0];
+          }
+        }
+      }
+    }
+  }
+
+  function uploadMesh(verts, uvs, lights, alphas, tints, indices) {
+    const mesh = {
+      vbo: gl.createBuffer(), uvbo: gl.createBuffer(),
+      lbo: gl.createBuffer(), abo: gl.createBuffer(),
+      tbo: gl.createBuffer(), ibo: gl.createBuffer(),
+      count: indices.length
+    };
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.uvbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uvs), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.lbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lights), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.abo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(alphas), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.tbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tints), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(indices), gl.STATIC_DRAW);
+    return mesh;
+  }
+
+  return {
+    opaque:      uploadMesh(oVerts, oUvs, oLights, oAlphas, oTints, oIndices),
+    transparent: uploadMesh(tVerts, tUvs, tLights, tAlphas, tTints, tIndices)
+  };
+}
+
+// ═══════════════════════════════════════════════
+//  MATRIX MATH
+// ═══════════════════════════════════════════════
+function mat4() { return new Float32Array(16); }
+function identity(m) {
+  m[0]=1;m[1]=0;m[2]=0;m[3]=0;
+  m[4]=0;m[5]=1;m[6]=0;m[7]=0;
+  m[8]=0;m[9]=0;m[10]=1;m[11]=0;
+  m[12]=0;m[13]=0;m[14]=0;m[15]=1;
+  return m;
+}
+function perspective(m, fov, aspect, near, far) {
+  const f = 1/Math.tan(fov/2);
+  m[0]=f/aspect; m[1]=0; m[2]=0; m[3]=0;
+  m[4]=0; m[5]=f; m[6]=0; m[7]=0;
+  m[8]=0; m[9]=0; m[10]=(far+near)/(near-far); m[11]=-1;
+  m[12]=0; m[13]=0; m[14]=2*far*near/(near-far); m[15]=0;
+  return m;
+}
+function lookAt(m, ex,ey,ez, tx,ty,tz) {
+  // gluLookAt: z-axis = eye-target (camera looks down -z in view space)
+  let zx=ex-tx, zy=ey-ty, zz=ez-tz;
+  let zl=Math.sqrt(zx*zx+zy*zy+zz*zz)||1; zx/=zl; zy/=zl; zz/=zl;
+  // x-axis = normalize(up x z), up=(0,1,0) => up x z = (1*zz-0*zy, 0*zx-0*zz, 0*zy-1*zx) = (zz, 0, -zx)
+  let xx=zz, xy=0, xz=-zx;
+  let xl=Math.sqrt(xx*xx+xy*xy+xz*xz)||1; xx/=xl; xy/=xl; xz/=xl;
+  // y-axis = z x x
+  const yx=zy*xz-zz*xy, yy=zz*xx-zx*xz, yz=zx*xy-zy*xx;
+  // Column-major storage for WebGL (each column is [m0,m1,m2,m3])
+  m[0]=xx; m[1]=yx; m[2]=zx; m[3]=0;
+  m[4]=xy; m[5]=yy; m[6]=zy; m[7]=0;
+  m[8]=xz; m[9]=yz; m[10]=zz; m[11]=0;
+  m[12]=-(xx*ex+xy*ey+xz*ez);
+  m[13]=-(yx*ex+yy*ey+yz*ez);
+  m[14]=-(zx*ex+zy*ey+zz*ez);
+  m[15]=1;
+  return m;
+}
+
+function multiply(out, a, b) {
+  for (let i=0;i<4;i++) for (let j=0;j<4;j++) {
+    out[j*4+i]=0;
+    for (let k=0;k<4;k++) out[j*4+i]+=a[k*4+i]*b[j*4+k];
+  }
+  return out;
+}
+
+// ═══════════════════════════════════════════════
+//  RAYCASTING
+// ═══════════════════════════════════════════════
+function raycast(world, ox,oy,oz, dx,dy,dz, maxDist) {
+  let x=Math.floor(ox), y=Math.floor(oy), z=Math.floor(oz);
+  const sx=dx>0?1:-1, sy=dy>0?1:-1, sz=dz>0?1:-1;
+  let tdx=Math.abs(1/dx)||1e30, tdy=Math.abs(1/dy)||1e30, tdz=Math.abs(1/dz)||1e30;
+  let tx=(dx>0?(x+1-ox):ox-x)*Math.abs(1/dx)||1e30;
+  let ty=(dy>0?(y+1-oy):oy-y)*Math.abs(1/dy)||1e30;
+  let tz=(dz>0?(z+1-oz):oz-z)*Math.abs(1/dz)||1e30;
+  let face=[0,-1,0];
+  let dist=0;
+  while(dist<maxDist) {
+    if (isHittable(world.getBlock(x,y,z))) return {x,y,z,face,dist};
+    if (tx<ty && tx<tz) { x+=sx; dist=tx; tx+=tdx; face=[-sx,0,0]; }
+    else if (ty<tz)     { y+=sy; dist=ty; ty+=tdy; face=[0,-sy,0]; }
+    else                { z+=sz; dist=tz; tz+=tdz; face=[0,0,-sz]; }
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════
+//  PLAYER
+// ═══════════════════════════════════════════════
+const player = {
+  x: 0, y: SEA_LEVEL+5, z: 0,
+  vx: 0, vy: 0, vz: 0,
+  yaw: 0, pitch: 0,
+  onGround: false,
+  height: 1.8,
+  radius: 0.3,
+};
+
+// ═══════════════════════════════════════════════
+//  INPUT
+// ═══════════════════════════════════════════════
+const keys = {};
+let locked = false;
+const HOTBAR = [GRASS,DIRT,STONE,COBBLESTONE,SAND,LOG,PLANKS,GLASS,TNT];
+let selectedSlot = 0;
+
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code==='Digit1') selectedSlot=0;
+  if (e.code==='Digit2') selectedSlot=1;
+  if (e.code==='Digit3') selectedSlot=2;
+  if (e.code==='Digit4') selectedSlot=3;
+  if (e.code==='Digit5') selectedSlot=4;
+  if (e.code==='Digit6') selectedSlot=5;
+  if (e.code==='Digit7') selectedSlot=6;
+  if (e.code==='Digit8') selectedSlot=7;
+  if (e.code==='Digit9') selectedSlot=8;
+  if (e.code==='KeyE' && gameStarted) { toggleInventory(); e.preventDefault(); return; }
+  if (e.code==='Escape' && gameStarted) {
+    if (invOpen) { closeInventory(); e.preventDefault(); return; }
+    if (locked) document.exitPointerLock();
+  }
+  e.preventDefault && ['Space','Tab'].includes(e.code) && e.preventDefault();
+  updateHotbarUI();
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+canvas.addEventListener('wheel', e => {
+  selectedSlot = (selectedSlot + (e.deltaY>0?1:-1) + HOTBAR.length) % HOTBAR.length;
+  updateHotbarUI();
+});
+
+let mouseDX=0, mouseDY=0;
+document.addEventListener('mousemove', e => {
+  if (!locked) return;
+  mouseDX += e.movementX;
+  mouseDY += e.movementY;
+});
+
+let rmheld=false, lmheld=false;
+document.addEventListener('mousedown', e => {
+  if (!locked) return;
+  if (e.button===0) { lmheld=true; tryBreak(); }
+  if (e.button===2) { rmheld=true; tryPlace(); }
+});
+document.addEventListener('mouseup', e => {
+  if (e.button===0) lmheld=false;
+  if (e.button===2) rmheld=false;
+});
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+document.addEventListener('pointerlockchange', () => {
+  locked = !!document.pointerLockElement;
+  if (locked) {
+    document.getElementById('overlay').style.display = 'none';
+  } else if (gameStarted && !invOpen) {
+    document.getElementById('overlay').style.display = 'flex';
+    document.getElementById('overlayTitle').textContent = 'Paused';
+    document.getElementById('startBtn').textContent = 'Click to Resume';
+  }
+});
+document.addEventListener('pointerlockerror', () => {
+  console.warn('Pointer lock failed');
+});
+canvas.addEventListener('click', () => {
+  if (gameStarted && !locked) {
+    canvas.requestPointerLock();
+  }
+});
+
+// ═══════════════════════════════════════════════
+//  WORLD SETUP
+// ═══════════════════════════════════════════════
+const world = new World();
+const RENDER_DIST = 4;
+
+let gameStarted = false;
+let lastBreak = 0, lastPlace = 0;
+
+function initWorld() {
+  // Don't pre-generate here - updateChunks() will generate everything correctly
+  // with the +1 border ring so all chunk borders have neighbors before meshing.
+  // We just need to find a valid spawn point using heightAt() which doesn't
+  // require chunks to be generated first.
+  let spawnX = 0, spawnZ = 0;
+  outer: for (let r=0; r<=20; r++) {
+    for (let dx=-r; dx<=r; dx++) {
+      for (let dz=-r; dz<=r; dz++) {
+        if (Math.abs(dx)!==r && Math.abs(dz)!==r) continue;
+        const h = world.heightAt(dx*3, dz*3);
+        if (h >= SEA_LEVEL + 1) {
+          spawnX = dx*3; spawnZ = dz*3;
+          break outer;
+        }
+      }
+    }
+  }
+  player.x = spawnX + 0.5;
+  player.z = spawnZ + 0.5;
+  player.y = world.heightAt(spawnX, spawnZ) + 1;
+}
+
+function updateChunks() {
+  const pcx = Math.floor(player.x/CHUNK_SIZE), pcz = Math.floor(player.z/CHUNK_SIZE);
+
+  // PASS 1: Generate all needed chunks including 1 extra ring so every visible
+  // chunk has all 4 neighbors ready. generate() does NOT touch modifiedChunks.
+  const newlyGenerated = [];
+  for (let dx=-(RENDER_DIST+1); dx<=RENDER_DIST+1; dx++) {
+    for (let dz=-(RENDER_DIST+1); dz<=RENDER_DIST+1; dz++) {
+      const cx=pcx+dx, cz=pcz+dz;
+      const k = world.chunkKey(cx,cz);
+      if (!world.chunks.has(k)) {
+        world.generate(cx,cz);
+        newlyGenerated.push({cx, cz, k});
+      }
+    }
+  }
+
+  // PASS 2: Now that all neighbors exist, mark newly generated chunks AND
+  // their neighbors dirty so border meshes get rebuilt with correct face culling.
+  // Only mark a neighbor if it actually exists (was generated).
+  for (const {cx, cz, k} of newlyGenerated) {
+    world.modifiedChunks.add(k);
+    const neighbors = [
+      world.chunkKey(cx-1, cz), world.chunkKey(cx+1, cz),
+      world.chunkKey(cx, cz-1), world.chunkKey(cx, cz+1)
+    ];
+    for (const nk of neighbors) {
+      if (world.chunks.has(nk)) world.modifiedChunks.add(nk);
+    }
+  }
+
+  // PASS 3: Rebuild all dirty chunk meshes.
+  // Skip any chunk whose neighbors aren't all generated - it will be retried next frame.
+  const stillDirty = new Set();
+  for (const k of world.modifiedChunks) {
+    const [cx,cz] = k.split(',').map(Number);
+    const dist = Math.max(Math.abs(cx-pcx), Math.abs(cz-pcz));
+    if (dist > RENDER_DIST+1) continue;
+    // Require all 4 neighbors to exist before building mesh
+    if (!world.chunks.has(world.chunkKey(cx-1,cz)) ||
+        !world.chunks.has(world.chunkKey(cx+1,cz)) ||
+        !world.chunks.has(world.chunkKey(cx,cz-1)) ||
+        !world.chunks.has(world.chunkKey(cx,cz+1))) {
+      stillDirty.add(k); // retry next frame when neighbor exists
+      continue;
+    }
+    if (chunkMeshes.has(k)) {
+      const m = chunkMeshes.get(k);
+      for (const sub of [m.opaque, m.transparent]) {
+        gl.deleteBuffer(sub.vbo); gl.deleteBuffer(sub.uvbo);
+        gl.deleteBuffer(sub.lbo); gl.deleteBuffer(sub.abo);
+        gl.deleteBuffer(sub.tbo); gl.deleteBuffer(sub.ibo);
+      }
+    }
+    chunkMeshes.set(k, buildChunkMesh(world, cx, cz));
+  }
+  world.modifiedChunks = stillDirty;
+}
+
+function tryBreak() {
+  const now = Date.now();
+  if (now-lastBreak < 250) return;
+  lastBreak = now;
+  const hit = getRayHit();
+  if (hit && hit.y > 0) {
+    delete window.wallFaces[`${hit.x},${hit.y},${hit.z}`];
+    world.setBlock(hit.x, hit.y, hit.z, AIR);
+    redstoneUpdate(hit.x, hit.y, hit.z);
+  }
+}
+function tryPlace() {
+  const now = Date.now();
+  if (now-lastPlace < 300) return;
+  lastPlace = now;
+  const hit = getRayHit();
+  if (!hit) return;
+  // Right-click lever = toggle it
+  if (world.getBlock(hit.x, hit.y, hit.z) === LEVER) {
+    leverStates[`${hit.x},${hit.y},${hit.z}`] ^= 1;
+    // Mark chunk dirty so the handle visually flips
+    world.modifiedChunks.add(world.chunkKey(
+      Math.floor(hit.x/CHUNK_SIZE), Math.floor(hit.z/CHUNK_SIZE)
+    ));
+    redstoneUpdate(hit.x, hit.y, hit.z);
+    const dirs6 = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+    for (const [ddx,ddy,ddz] of dirs6) redstoneUpdate(hit.x+ddx, hit.y+ddy, hit.z+ddz);
+    lastPlace = now;
+    return;
+  }
+  const px=hit.x+hit.face[0], py=hit.y+hit.face[1], pz=hit.z+hit.face[2];
+  const dx=px-player.x, dy=py-player.y, dz=pz-player.z;
+  if (Math.abs(dx)<0.8 && dy>-0.5 && dy<player.height+0.5 && Math.abs(dz)<0.8) return;
+  const blockToPlace = HOTBAR[selectedSlot];
+  // For torches and levers: if placed on a side face (not top/bottom), store wall face
+  if ((blockToPlace === REDSTONE_TORCH || blockToPlace === LEVER) && hit.face[1] === 0) {
+    window.wallFaces[`${px},${py},${pz}`] = hit.face;
+  }
+  world.setBlock(px, py, pz, blockToPlace);
+  redstoneUpdate(px, py, pz);
+  // Also trigger updates on all neighbors so adjacent lamps power on immediately
+  const dirs6 = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+  for (const [ddx,ddy,ddz] of dirs6) redstoneUpdate(px+ddx, py+ddy, pz+ddz);
+}
+function getRayHit() {
+  const [fx,fy,fz] = getLookVec();
+  return raycast(world, player.x, player.y+player.height*0.9, player.z, fx,fy,fz, 6);
+}
+function getLookVec() {
+  const cosPitch = Math.cos(player.pitch);
+  return [
+    -Math.sin(player.yaw) * cosPitch,
+    Math.sin(player.pitch),
+    -Math.cos(player.yaw) * cosPitch,
+  ];
+}
+
+// ═══════════════════════════════════════════════
+//  REDSTONE SIMULATION
+// ═══════════════════════════════════════════════
+const leverStates = {}; // "x,y,z" -> 0|1
+
+// Is this block directly powered by a lever or active torch adjacent to it?
+// For dust, we also propagate from neighboring powered dust
+function isBlockPowered(x, y, z, depth) {
+  if (depth <= 0) return false;
+  const dirs = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+  for (const [dx,dy,dz] of dirs) {
+    const nx=x+dx, ny=y+dy, nz=z+dz;
+    const nb = world.getBlock(nx,ny,nz);
+    // Active lever powers adjacent blocks
+    if (nb === LEVER && leverStates[`${nx},${ny},${nz}`]) return true;
+    // Redstone torch powers adjacent blocks EXCEPT the block it sits on
+    // (torch at nx,ny,nz: it sits on the block below it, i.e. nx,ny-1,nz)
+    if (nb === REDSTONE_TORCH && isTorchActive(nx,ny,nz)) {
+      // Torch powers everything EXCEPT its base block
+      const wf = window.wallFaces && window.wallFaces[`${nx},${ny},${nz}`];
+      const baseX = wf ? nx-wf[0] : nx;
+      const baseY = wf ? ny : ny-1;
+      const baseZ = wf ? nz-wf[2] : nz;
+      if (x!==baseX || y!==baseY || z!==baseZ) return true;
+    }
+    // Powered dust propagates (limited depth)
+    if (nb === REDSTONE_DUST && depth > 1 && isDustPoweredSrc(nx,ny,nz,depth-1)) return true;
+  }
+  return false;
+}
+
+function isDustPoweredSrc(x, y, z, depth) {
+  if (depth <= 0) return false;
+  const dirs4 = [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]];
+  // Direct power sources next to this dust
+  if (leverStates[`${x},${y-1},${z}`]) return true; // lever below
+  for (const [dx,dy,dz] of dirs4) {
+    const nx=x+dx, ny=y+dy, nz=z+dz;
+    const nb = world.getBlock(nx,ny,nz);
+    if (nb === LEVER && leverStates[`${nx},${ny},${nz}`]) return true;
+    if (nb === REDSTONE_TORCH && isTorchActive(nx,ny,nz)) {
+      const wf = window.wallFaces && window.wallFaces[`${nx},${ny},${nz}`];
+      const baseX = wf ? nx-wf[0] : nx;
+      const baseY = wf ? ny : ny-1;
+      const baseZ = wf ? nz-wf[2] : nz;
+      if (x!==baseX || y!==baseY || z!==baseZ) return true;
+    }
+    if (nb === REDSTONE_DUST && isDustPoweredSrc(nx,ny,nz,depth-1)) return true;
+  }
+  // Also check torch directly below
+  const below = world.getBlock(x,y-1,z);
+  if (below === REDSTONE_TORCH && isTorchActive(x,y-1,z)) return true;
+  return false;
+}
+
+// Is the block at (x,y,z) providing power to what's on top / adjacent?
+// For torches: powered = NOT powered-from-below
+function isTorchActive(x, y, z) {
+  // For wall-mounted torches, check the block they're attached to
+  const wf = window.wallFaces && window.wallFaces[`${x},${y},${z}`];
+  if (wf && (wf[0] !== 0 || wf[2] !== 0)) {
+    // Wall torch: attached to block at (x-wf[0], y, z-wf[2])
+    // It's deactivated if that block is powered (excluding this torch)
+    return !isBlockPoweredExcludingTorch(x-wf[0], y, z-wf[2], x, y, z, 6);
+  }
+  // Floor torch: deactivated if the block below is powered
+  return !isBlockPoweredExcludingTorch(x, y-1, z, x, y, z, 6);
+}
+
+function isBlockPoweredExcludingTorch(x, y, z, torchX, torchY, torchZ, depth) {
+  if (depth <= 0) return false;
+  const dirs = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+  for (const [dx,dy,dz] of dirs) {
+    const nx=x+dx, ny=y+dy, nz=z+dz;
+    if (nx===torchX && ny===torchY && nz===torchZ) continue; // skip this torch
+    const nb = world.getBlock(nx,ny,nz);
+    if (nb === LEVER && leverStates[`${nx},${ny},${nz}`]) return true;
+    if (nb === REDSTONE_TORCH && isTorchActive(nx,ny,nz)) {
+      const wf = window.wallFaces && window.wallFaces[`${nx},${ny},${nz}`];
+      const baseX = wf ? nx-wf[0] : nx;
+      const baseY = wf ? ny : ny-1;
+      const baseZ = wf ? nz-wf[2] : nz;
+      if (x!==baseX || y!==baseY || z!==baseZ) return true;
+    }
+    if (nb === REDSTONE_DUST && depth > 1 && isDustPoweredSrc(nx,ny,nz,depth-1)) return true;
+  }
+  return false;
+}
+
+function redstoneUpdate(ox, oy, oz) {
+  // BFS outward to update all lamps and torches within range
+  const visited = new Set();
+  const queue = [[ox,oy,oz]];
+  let iters = 0;
+  while (queue.length && iters < 1000) {
+    iters++;
+    const [x,y,z] = queue.shift();
+    const key = `${x},${y},${z}`;
+    if (visited.has(key)) continue;
+    visited.add(key);
+    const id = world.getBlock(x,y,z);
+
+    // Update lamps
+    if (id === REDSTONE_LAMP || id === REDSTONE_LAMP_ON) {
+      const on = isBlockPowered(x,y,z,8);
+      const newId = on ? REDSTONE_LAMP_ON : REDSTONE_LAMP;
+      if (id !== newId) world.setBlock(x,y,z,newId);
+    }
+
+    // Update torch on/off
+    if (id === REDSTONE_TORCH || id === REDSTONE_TORCH_OFF) {
+      const active = isTorchActive(x,y,z);
+      const newId = active ? REDSTONE_TORCH : REDSTONE_TORCH_OFF;
+      if (id !== newId) world.setBlock(x,y,z,newId);
+    }
+
+    // Redstone dust: mark chunk dirty so powered tint/direction rebuilds
+    if (id === REDSTONE_DUST) {
+      world.modifiedChunks.add(world.chunkKey(
+        Math.floor(x/CHUNK_SIZE), Math.floor(z/CHUNK_SIZE)
+      ));
+    }
+
+    // Propagate to neighbors
+    if (visited.size < 500) {
+      const dirs = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+      for (const [dx,dy,dz] of dirs) {
+        const nk = `${x+dx},${y+dy},${z+dz}`;
+        if (!visited.has(nk)) queue.push([x+dx,y+dy,z+dz]);
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  PHYSICS
+// ═══════════════════════════════════════════════
+function updatePhysics(dt) {
+  const speed = keys['ShiftLeft'] ? 3 : 5;
+  const [fx,,fz] = getLookVec();
+  const fl = Math.sqrt(fx*fx+fz*fz)||1;
+  const fnx=fx/fl, fnz=fz/fl;
+  const rx=-fnz, rz=fnx;
+  let mx=0, mz=0;
+  if (keys['KeyW']) { mx+=fnx; mz+=fnz; }
+  if (keys['KeyS']) { mx-=fnx; mz-=fnz; }
+  if (keys['KeyA']) { mx-=rx;  mz-=rz; }
+  if (keys['KeyD']) { mx+=rx;  mz+=rz; }
+  const ml = Math.sqrt(mx*mx+mz*mz)||1;
+  if (mx||mz) { player.vx=mx/ml*speed; player.vz=mz/ml*speed; }
+  else { player.vx*=0.8; player.vz*=0.8; }
+
+  if (keys['Space'] && player.onGround) player.vy = 8;
+
+  const inWater = world.getBlock(Math.floor(player.x), Math.floor(player.y+player.height*0.9), Math.floor(player.z)) === WATER;
+  player.vy -= (inWater?5:20)*dt;
+  if (inWater) { player.vy = Math.max(player.vy, -3); if (keys['Space']) player.vy=6; }
+
+  // Move & collide
+  moveAxis('x', player.vx*dt);
+  moveAxis('y', player.vy*dt);
+  moveAxis('z', player.vz*dt);
+}
+
+function moveAxis(axis, delta) {
+  const pr = player.radius;
+  const ph = player.height;
+  player[axis] += delta;
+  const bx=Math.floor(player.x), by=Math.floor(player.y), bz=Math.floor(player.z);
+  const offsets = axis==='x'?[-1,0,1]:axis==='z'?[-1,0,1]:[-1,0,1,2];
+  if (axis === 'y') player.onGround = false;
+  for (let ox=-1; ox<=1; ox++) for (let oy=-1; oy<=3; oy++) for (let oz=-1; oz<=1; oz++) {
+    const bxc=bx+ox, byc=by+oy, bzc=bz+oz;
+    if (!isSolid(world.getBlock(bxc,byc,bzc))) continue;
+    // AABB vs block
+    const minBX=bxc, maxBX=bxc+1, minBZ=bzc, maxBZ=bzc+1;
+    const minBY=byc, maxBY=byc+1;
+    const px1=player.x-pr, px2=player.x+pr;
+    const py1=player.y,    py2=player.y+ph;
+    const pz1=player.z-pr, pz2=player.z+pr;
+    if (px2<minBX||px1>maxBX||py2<minBY||py1>maxBY||pz2<minBZ||pz1>maxBZ) continue;
+    if (axis==='x') {
+      if (delta>0) player.x=minBX-pr-0.001; else player.x=maxBX+pr+0.001;
+      player.vx=0;
+    } else if (axis==='y') {
+      if (delta<0) { player.y=maxBY+0.001; player.vy=0; player.onGround=true; }
+      else { player.y=minBY-ph-0.001; player.vy=0; }
+    } else {
+      if (delta>0) player.z=minBZ-pr-0.001; else player.z=maxBZ+pr+0.001;
+      player.vz=0;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════
+const proj = mat4(), view2 = mat4(), mvp = mat4(), tmp = mat4();
+gl.enable(gl.DEPTH_TEST);
+// culling disabled - face normals determine visibility instead
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+const ext = gl.getExtension('OES_element_index_uint');
+
+function render() {
+  const w = canvas.width, h = canvas.height;
+  gl.viewport(0, 0, w, h);
+  const inWater = world.getBlock(Math.floor(player.x), Math.floor(player.y+player.height*0.9), Math.floor(player.z)) === WATER;
+
+  // Underwater overlay toggle
+  const overlayEl = document.getElementById('underwaterOverlay');
+  if (inWater) overlayEl.classList.add('active');
+  else overlayEl.classList.remove('active');
+
+  if (inWater) gl.clearColor(0.0, 0.12, 0.35, 1);
+  else gl.clearColor(0.53, 0.81, 0.98, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  // Tighter far clip underwater for murky fog effect
+  const farClip = inWater ? 20 : 200;
+  perspective(proj, Math.PI/3, w/h, 0.05, farClip);
+  const [fx,fy,fz] = getLookVec();
+  const ex=player.x, ey=player.y+player.height*0.9, ez=player.z;
+  lookAt(view2, ex,ey,ez, ex+fx, ey+fy, ez+fz);
+  multiply(mvp, proj, view2);
+
+  gl.useProgram(prog);
+  gl.uniformMatrix4fv(uMVP, false, mvp);
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+
+  const pcx=Math.floor(player.x/CHUNK_SIZE), pcz=Math.floor(player.z/CHUNK_SIZE);
+
+  // Sort chunks: opaque first, then transparent
+  const chunkList = [];
+  for (const [k, mesh] of chunkMeshes) {
+    const [cx,cz]=k.split(',').map(Number);
+    const dist=Math.sqrt((cx-pcx)**2+(cz-pcz)**2);
+    if (dist > RENDER_DIST+0.5) continue;
+    chunkList.push({k,mesh,dist,cx,cz});
+  }
+  chunkList.sort((a,b)=>a.dist-b.dist);
+
+  function drawSubMesh(sub) {
+    if (sub.count === 0) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, sub.vbo);
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, sub.uvbo);
+    gl.enableVertexAttribArray(aUV);
+    gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, sub.lbo);
+    gl.enableVertexAttribArray(aLight);
+    gl.vertexAttribPointer(aLight, 1, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, sub.abo);
+    gl.enableVertexAttribArray(aAlpha);
+    gl.vertexAttribPointer(aAlpha, 1, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, sub.tbo);
+    gl.enableVertexAttribArray(aTint);
+    gl.vertexAttribPointer(aTint, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sub.ibo);
+    gl.drawElements(gl.TRIANGLES, sub.count, gl.UNSIGNED_INT, 0);
+  }
+
+  // Pass 1: opaque geometry with depth writes on
+  gl.depthMask(true);
+  for (const {mesh} of chunkList) drawSubMesh(mesh.opaque);
+
+  // Pass 2: transparent geometry back-to-front, depth writes off so surfaces blend
+  gl.depthMask(false);
+  for (const {mesh} of [...chunkList].reverse()) drawSubMesh(mesh.transparent);
+  gl.depthMask(true);
+
+  // Highlight selected block
+  const hit = getRayHit();
+  if (hit) drawBlockHighlight(hit.x, hit.y, hit.z);
+}
+
+function drawBlockHighlight(x, y, z) {
+  // Simple wireframe overlay using lines
+  // skipping for performance – use a subtle brightness instead
+}
+
+// ═══════════════════════════════════════════════
+//  HUD HOTBAR
+// ═══════════════════════════════════════════════
+const hotbarEl = document.getElementById('hotbar');
+const blockLabel = document.getElementById('blockLabel');
+
+function buildHotbarUI() {
+  hotbarEl.innerHTML = '';
+  for (let i=0; i<HOTBAR.length; i++) {
+    const slot = document.createElement('div');
+    slot.className = 'hslot' + (i===selectedSlot?' active':'');
+    // Draw block icon using a small canvas
+    const c = document.createElement('canvas');
+    c.width=16; c.height=16;
+    drawBlockIcon(c, HOTBAR[i]);
+    slot.appendChild(c);
+    hotbarEl.appendChild(slot);
+  }
+}
+
+function updateHotbarUI() {
+  const slots = hotbarEl.querySelectorAll('.hslot');
+  slots.forEach((s,i) => s.className = 'hslot'+(i===selectedSlot?' active':''));
+  blockLabel.textContent = BLOCK_NAMES[HOTBAR[selectedSlot]];
+}
+
+function drawBlockIcon(canvasEl, blockId) {
+  const ctx = canvasEl.getContext('2d');
+  const def = BLOCK_UVS[blockId] || BLOCK_UVS[STONE];
+  const faceUV = def.icon || def.top || def.all || uv(1,0);
+  // faceUV: [u0,v0, u1,v1, u2,v2, u3,v3]
+  const col = Math.round(faceUV[0]*16);
+  const row = Math.round(faceUV[1]*16);
+  // We'll draw after texture loads
+  if (!terrainImg) { ctx.fillStyle='#888'; ctx.fillRect(0,0,16,16); return; }
+  ctx.drawImage(terrainImg, col*16, row*16, 16, 16, 0, 0, 16, 16);
+}
+
+let terrainImg = null;
+const hotbarImg = new Image();
+hotbarImg.onload = () => { terrainImg = hotbarImg; buildHotbarUI(); };
+hotbarImg.src = TERRAIN_B64;
+
+// ═══════════════════════════════════════════════
+//  INVENTORY SYSTEM
+// ═══════════════════════════════════════════════
+const INVENTORY = new Array(27).fill(AIR);
+const ALL_BLOCKS = [GRASS,DIRT,STONE,COBBLESTONE,SAND,GRAVEL,BEDROCK,
+  LOG,LEAVES,PLANKS,GLASS,WATER,SNOW,ICE,WOOL,BRICK,TNT,
+  CHEST,FURNACE,IRON,GOLD,DIAMOND,
+  REDSTONE_DUST,REDSTONE_TORCH,REDSTONE_TORCH_OFF,LEVER,REDSTONE_LAMP];
+
+let invOpen = false;
+let dragBlock = null; // block ID being dragged, or null
+let dragGhostEl = null;
+
+function toggleInventory() {
+  if (invOpen) closeInventory(); else openInventory();
+}
+
+function openInventory() {
+  invOpen = true;
+  if (locked) document.exitPointerLock();
+  document.getElementById('invScreen').style.display = 'flex';
+  document.getElementById('overlay').style.display = 'none';
+  renderInvScreen();
+}
+
+function closeInventory() {
+  invOpen = false;
+  document.getElementById('invScreen').style.display = 'none';
+  document.getElementById('overlay').style.display = 'flex';
+  document.getElementById('overlayTitle').textContent = 'Paused';
+  document.getElementById('startBtn').textContent = 'Click to Resume';
+  dragBlock = null;
+  if (dragGhostEl) { dragGhostEl.remove(); dragGhostEl = null; }
+}
+
+// Draw block icon onto a 2d canvas element
+function drawIcon(canvas2d, blockId) {
+  const ctx = canvas2d.getContext('2d');
+  ctx.clearRect(0, 0, 40, 40);
+  if (!terrainImg || blockId === AIR) return;
+  const def = BLOCK_UVS[blockId] || BLOCK_UVS[STONE];
+  const fuv = def.icon || def.top || def.all || uv(1,0);
+  const col = Math.round(fuv[0] * 16);
+  const row = Math.round(fuv[1] * 16);
+  ctx.drawImage(terrainImg, col*16, row*16, 16, 16, 0, 0, 40, 40);
+}
+
+function makeSlot(blockId, slotType, slotIndex) {
+  const div = document.createElement('div');
+  div.className = 'slot' + (slotType === 'hotbar' && slotIndex === selectedSlot ? ' active-slot' : '');
+  div.dataset.slotType = slotType;
+  div.dataset.slotIndex = slotIndex;
+  div.dataset.blockId = blockId;
+
+  if (blockId !== AIR) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 40;
+    drawIcon(c, blockId);
+    div.appendChild(c);
+  }
+
+  // Tooltip
+  const tip = document.getElementById('slotTip');
+  div.addEventListener('mouseenter', e => {
+    if (blockId !== AIR) {
+      tip.textContent = BLOCK_NAMES[blockId] || '';
+      tip.style.display = 'block';
+      tip.style.left = (e.clientX + 14) + 'px';
+      tip.style.top  = (e.clientY - 8)  + 'px';
+    }
+  });
+  div.addEventListener('mousemove', e => {
+    tip.style.left = (e.clientX + 14) + 'px';
+    tip.style.top  = (e.clientY - 8)  + 'px';
+  });
+  div.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+
+  return div;
+}
+
+function renderInvScreen() {
+  // Creative grid
+  const grid = document.getElementById('creativeGrid');
+  grid.innerHTML = '';
+  ALL_BLOCKS.forEach(bid => {
+    const s = makeSlot(bid, 'creative', -1);
+    grid.appendChild(s);
+  });
+
+  // Inventory grid
+  const invGrid = document.getElementById('invGrid');
+  invGrid.innerHTML = '';
+  for (let i = 0; i < 27; i++) {
+    const s = makeSlot(INVENTORY[i], 'inv', i);
+    invGrid.appendChild(s);
+  }
+
+  // Hotbar row
+  const hbar = document.getElementById('invHotbarRow');
+  hbar.innerHTML = '';
+  for (let i = 0; i < HOTBAR.length; i++) {
+    const s = makeSlot(HOTBAR[i], 'hotbar', i);
+    hbar.appendChild(s);
+  }
+}
+
+// ── Drag & Drop via pointer capture ──
+const invScreenEl = document.getElementById('invScreen');
+
+invScreenEl.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  const slot = e.target.closest('.slot');
+  if (!slot) return;
+  const bid = parseInt(slot.dataset.blockId);
+  if (!bid || bid === AIR) return;
+
+  dragBlock = bid;
+
+  // Create floating ghost
+  if (dragGhostEl) dragGhostEl.remove();
+  dragGhostEl = document.createElement('canvas');
+  dragGhostEl.width = dragGhostEl.height = 40;
+  dragGhostEl.style.cssText = 'position:fixed;pointer-events:none;z-index:999;width:40px;height:40px;image-rendering:pixelated;';
+  drawIcon(dragGhostEl, bid);
+  document.body.appendChild(dragGhostEl);
+  moveDragGhost(e.clientX, e.clientY);
+
+  e.preventDefault();
+});
+
+invScreenEl.addEventListener('mousemove', e => {
+  if (dragBlock !== null) moveDragGhost(e.clientX, e.clientY);
+});
+
+invScreenEl.addEventListener('mouseup', e => {
+  if (dragBlock === null) return;
+  const slot = e.target.closest('.slot');
+  if (slot) {
+    const destType = slot.dataset.slotType;
+    const destIdx  = parseInt(slot.dataset.slotIndex);
+    if (destType === 'hotbar') {
+      HOTBAR[destIdx] = dragBlock;
+    } else if (destType === 'inv') {
+      INVENTORY[destIdx] = dragBlock;
+    }
+    // creative: read-only, ignore drops onto it
+  }
+  dragBlock = null;
+  if (dragGhostEl) { dragGhostEl.remove(); dragGhostEl = null; }
+  renderInvScreen();
+  buildHotbarUI();
+  updateHotbarUI();
+  // clear any drag-over highlights
+  invScreenEl.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+});
+
+// Highlight slot under cursor while dragging
+invScreenEl.addEventListener('mouseover', e => {
+  if (dragBlock === null) return;
+  invScreenEl.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+  const slot = e.target.closest('.slot');
+  if (slot && slot.dataset.slotType !== 'creative') slot.classList.add('drag-over');
+});
+
+document.addEventListener('mouseup', e => {
+  // Cancel drag if released outside inventory
+  if (dragBlock !== null) {
+    dragBlock = null;
+    if (dragGhostEl) { dragGhostEl.remove(); dragGhostEl = null; }
+    invScreenEl.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+  }
+});
+
+function moveDragGhost(x, y) {
+  if (dragGhostEl) {
+    dragGhostEl.style.left = (x - 20) + 'px';
+    dragGhostEl.style.top  = (y - 20) + 'px';
+  }
+}
+
+// Tab switching
+document.getElementById('creativeTabs').addEventListener('click', e => {
+  const tab = e.target.dataset.tab;
+  if (!tab) return;
+  document.querySelectorAll('.ctab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  const grid = document.getElementById('creativeGrid');
+  grid.innerHTML = '';
+  const tabBlocks = {
+    all: ALL_BLOCKS,
+    building: [STONE,COBBLESTONE,DIRT,GRASS,SAND,GRAVEL,BEDROCK,PLANKS,BRICK,WOOL,IRON,GOLD,DIAMOND],
+    nature:   [LOG,LEAVES,WATER,SNOW,ICE,GLASS],
+    misc:     [TNT,CHEST,FURNACE],
+    redstone: [REDSTONE_DUST,REDSTONE_TORCH,REDSTONE_TORCH_OFF,LEVER,REDSTONE_LAMP]
+  }[tab] || ALL_BLOCKS;
+  tabBlocks.forEach(bid => grid.appendChild(makeSlot(bid, 'creative', -1)));
+});
+
+// ═══════════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════════
+const infoEl = document.getElementById('info');
+let lastTime = 0;
+let frameCount = 0, fpsTime = 0, fps = 0;
+
+function loop(ts) {
+  requestAnimationFrame(loop);
+  if (!gameStarted || !textureLoaded) return;
+  const dt = Math.min((ts - lastTime)/1000, 0.1);
+  lastTime = ts;
+  frameCount++;
+  fpsTime += dt;
+  if (fpsTime > 0.5) { fps = Math.round(frameCount/fpsTime); frameCount=0; fpsTime=0; }
+
+  // Mouse look
+  if (locked) {
+    player.yaw   -= mouseDX * 0.002;
+    player.pitch  = Math.max(-Math.PI/2+0.01, Math.min(Math.PI/2-0.01, player.pitch - mouseDY*0.002));
+    mouseDX=0; mouseDY=0;
+  }
+
+  updatePhysics(dt);
+
+  // Auto-generate terrain around player (handled inside updateChunks)
+  updateChunks();
+  render();
+
+  infoEl.innerHTML =
+    `FPS: ${fps}<br>` +
+    `XYZ: ${player.x.toFixed(1)} ${player.y.toFixed(1)} ${player.z.toFixed(1)}<br>` +
+    `Block: ${BLOCK_NAMES[HOTBAR[selectedSlot]]}<br>` +
+    `<br>WASD move | Space jump<br>LClick break | RClick place`;
+}
+
+// ═══════════════════════════════════════════════
+//  START
+// ═══════════════════════════════════════════════
+document.getElementById('startBtn').addEventListener('click', () => {
+  document.getElementById('overlay').style.display='none';
+  canvas.requestPointerLock();
+  if (!gameStarted) {
+    initWorld();
+    updateChunks();
+    buildHotbarUI();
+    updateHotbarUI();
+    gameStarted = true;
+    requestAnimationFrame(loop); // only start the loop once
+  }
+  lastTime = performance.now();
+});
+
+window.addEventListener('resize', () => {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+});
+
+// Loop starts when player clicks Play
+
+</script>
+</body>
+</html>

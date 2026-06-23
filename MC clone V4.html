@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Minecraft Clone V12 - Stairs & Doors Fixed</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Courier New', monospace; background: #87CEEB; }
+        
+        /* CROSSHAIR */
+        #crosshair {
+            position: absolute; top: 50%; left: 50%;
+            width: 20px; height: 20px;
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><path d="M10 0v20M0 10h20" stroke="white" stroke-width="2" style="mix-blend-mode: difference;"/></svg>') no-repeat center;
+            transform: translate(-50%, -50%); pointer-events: none; z-index: 50;
+        }
+
+        /* UI OVERLAYS */
+        #ui {
+            position: absolute; top: 10px; left: 10px;
+            color: white; background: rgba(0,0,0,0.6); padding: 10px;
+            pointer-events: none; border-radius: 5px; font-size: 14px; z-index: 50;
+        }
+        #debug { 
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%); 
+            color: yellow; pointer-events: none; font-weight: bold; 
+            text-shadow: 1px 1px 0 #000; text-align: center; z-index: 50;
+        }
+
+        /* HOTBAR */
+        #hotbar {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 5px; background: rgba(0,0,0,0.5); padding: 5px; border-radius: 5px;
+            z-index: 100;
+        }
+        .slot {
+            width: 50px; height: 50px; border: 2px solid #555; background: rgba(0,0,0,0.3);
+            display: flex; justify-content: center; align-items: center; cursor: pointer;
+            transition: transform 0.1s, border-color 0.1s;
+        }
+        .slot.active { border-color: white; background: rgba(255,255,255,0.2); transform: scale(1.1); }
+        .slot canvas { width: 40px; height: 40px; image-rendering: pixelated; }
+
+        /* BUTTONS */
+        #menu { position: absolute; top: 10px; right: 10px; display: flex; gap: 5px; z-index: 50; }
+        button { background: #444; color: white; border: 1px solid #888; cursor: pointer; padding: 5px; }
+    </style>
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+    </script>
+</head>
+<body>
+    <div id="crosshair"></div>
+    <div id="ui">
+        <b>MINECRAFT V12</b><br>
+        WASD Move | SPACE Jump<br>
+        Scroll: Select Block<br>
+        L-Click: Mine | R-Click: Place<br>
+        R-Click Door: Open/Close
+    </div>
+    <div id="debug">Initializing...</div>
+    <div id="menu">
+        <button id="btnSave">Save</button>
+        <button id="btnLoad">Load</button>
+        <button id="btnClear">Reset</button>
+    </div>
+    <div id="hotbar"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+
+        // --- 1. GLOBALS ---
+        const CHUNK = 16;
+        const HEIGHT = 64;
+        const RENDER_DIST = 3;
+        const TEX_SIZE = 64;
+
+        // Block IDs
+        const B = { 
+            AIR: 0, GRASS: 1, DIRT: 2, STONE: 3, COBBLE: 4, 
+            LOG: 5, LEAVES: 6, PLANKS: 7, 
+            // Stairs: 20=North, 21=East, 22=South, 23=West
+            STAIR_N: 20, STAIR_E: 21, STAIR_S: 22, STAIR_W: 23,
+            // Doors: 30=Bot/Closed, 31=Bot/Open, 32=Top/Closed, 33=Top/Open
+            DOOR_B_C: 30, DOOR_B_O: 31, DOOR_T_C: 32, DOOR_T_O: 33 
+        };
+
+        const INVENTORY = [B.GRASS, B.DIRT, B.STONE, B.COBBLE, B.PLANKS, B.LOG, B.LEAVES, B.STAIR_N, B.DOOR_B_C];
+        
+        const chunks = new Map();
+        const move = { f:0, b:0, l:0, r:0, u:0, d:0 };
+        const player = { pos: new THREE.Vector3(0, 40, 0), vel: new THREE.Vector3(), fly: false, ground: false };
+        let currSlot = 0;
+        let pt = performance.now();
+        let lastSpc = 0;
+
+        // --- 2. TEXTURES ---
+        const texNames = ['grass_s', 'grass_t', 'dirt', 'stone', 'cobble', 'log_s', 'log_t', 'leaves', 'planks', 'door_b', 'door_t'];
+        const texMap = {}; texNames.forEach((n,i) => texMap[n] = i);
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = texNames.length * TEX_SIZE; canvas.height = TEX_SIZE;
+        const ctx = canvas.getContext('2d');
+
+        function noise(ox, r,g,b, v) {
+            for(let i=0; i<64; i+=4) for(let j=0; j<64; j+=4) {
+                const n=(Math.random()-0.5)*v; ctx.fillStyle=`rgb(${r+n},${g+n},${b+n})`; ctx.fillRect(ox+i,j,4,4);
+            }
+        }
+        texNames.forEach((n, i) => {
+            const x = i*TEX_SIZE;
+            if(n==='grass_s') { noise(x,100,70,40,20); ctx.fillStyle='#4a9c2a'; ctx.fillRect(x,0,64,14); for(let k=0; k<64; k+=4) ctx.fillRect(x+k, 14, 4, Math.random()*8); }
+            else if(n==='grass_t') noise(x,60,140,40,30);
+            else if(n==='dirt') noise(x,100,70,40,20);
+            else if(n==='stone') noise(x,120,120,120,30);
+            else if(n==='cobble') { ctx.fillStyle='#666'; ctx.fillRect(x,0,64,64); ctx.strokeStyle='#444'; ctx.lineWidth=3; for(let k=0;k<8;k++) ctx.strokeRect(x+Math.random()*48,Math.random()*48,16,16); }
+            else if(n==='log_s') { ctx.fillStyle='#5c4033'; ctx.fillRect(x,0,64,64); ctx.fillStyle='#3e2b22'; for(let k=4;k<64;k+=8) ctx.fillRect(x+k,0,2,64); }
+            else if(n==='log_t') { ctx.fillStyle='#a0785a'; ctx.fillRect(x,0,64,64); ctx.strokeStyle='#5c4033'; ctx.lineWidth=4; ctx.beginPath(); ctx.arc(x+32,32,25,0,7); ctx.stroke(); }
+            else if(n==='leaves') { ctx.fillStyle='#2d6e32'; ctx.fillRect(x,0,64,64); ctx.fillStyle='#1c4a20'; for(let k=0;k<20;k++) ctx.fillRect(x+Math.random()*56,Math.random()*56,8,8); }
+            else if(n==='planks') { ctx.fillStyle='#a0785a'; ctx.fillRect(x,0,64,64); ctx.fillStyle='#785a42'; ctx.fillRect(x,0,64,2); ctx.fillRect(x,21,64,2); ctx.fillRect(x,42,64,2); }
+            else if(n==='door_b') { ctx.fillStyle='#785a42'; ctx.fillRect(x,0,64,64); ctx.fillStyle='#5c4033'; ctx.fillRect(x+8,8,48,48); ctx.fillStyle='#444'; ctx.fillRect(x+48,32,6,6); } 
+            else if(n==='door_t') { ctx.fillStyle='#785a42'; ctx.fillRect(x,0,64,64); ctx.fillStyle='#87CEEB'; ctx.fillRect(x+8,8,20,48); ctx.fillRect(x+36,8,20,48); } 
+        });
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.magFilter = THREE.NearestFilter; texture.colorSpace = THREE.SRGBColorSpace;
+        const mat = new THREE.MeshLambertMaterial({ map: texture, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide });
+
+        // --- 3. HOTBAR & UTILS ---
+        const hotbar = document.getElementById('hotbar');
+        
+        function getTex(id, dir) {
+            if(id === B.GRASS) return (dir==='up'?'grass_t':(dir==='down'?'dirt':'grass_s'));
+            if(id === B.LOG) return (dir==='up'||dir==='down'?'log_t':'log_s');
+            if(id === B.DIRT) return 'dirt';
+            if(id === B.STONE) return 'stone';
+            if(id === B.COBBLE) return 'cobble';
+            if(id === B.LEAVES) return 'leaves';
+            if(id === B.PLANKS || (id>=20 && id<=23)) return 'planks';
+            if(id >= 30) return (id>=32)?'door_t':'door_b';
+            return 'stone';
+        }
+
+        function updateHotbar() {
+            hotbar.innerHTML = '';
+            INVENTORY.forEach((id, i)=>{
+                const s = document.createElement('div'); s.className='slot'+(i===currSlot?' active':'');
+                const c=document.createElement('canvas'); c.width=64; c.height=64;
+                const ctx2=c.getContext('2d');
+                let tName = getTex(id, 'side');
+                if(id===B.STAIR_N) tName='planks';
+                if(id===B.DOOR_B_C) tName='door_b';
+                const tidx = texMap[tName];
+                if(tidx!==undefined) ctx2.drawImage(canvas, tidx*64,0,64,64,0,0,64,64);
+                if(id===B.STAIR_N){ctx2.fillStyle='white';ctx2.font='bold 20px Arial';ctx2.fillText('ST',14,40);}
+                if(id===B.DOOR_B_C){ctx2.fillStyle='white';ctx2.font='bold 20px Arial';ctx2.fillText('DR',14,40);}
+                s.appendChild(c); s.onmousedown=e=>{e.stopPropagation(); setSlot(i);};
+                hotbar.appendChild(s);
+            });
+        }
+        function setSlot(i){ if(i>=0&&i<INVENTORY.length){currSlot=i; updateHotbar();} }
+        
+        // --- 4. ENGINE & WORLD ---
+        const scene = new THREE.Scene(); scene.background = new THREE.Color(0x87CEEB); 
+        scene.fog = new THREE.Fog(0x87CEEB, 20, RENDER_DIST*CHUNK-10);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100);
+        const renderer = new THREE.WebGLRenderer(); renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        const controls = new PointerLockControls(camera, document.body);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.6); dirLight.position.set(50,100,50); scene.add(dirLight);
+
+        function getChunk(cx, cz) {
+            const k = `${cx},${cz}`;
+            if(chunks.has(k)) return chunks.get(k);
+            const data = new Uint8Array(CHUNK*CHUNK*HEIGHT);
+            for(let x=0; x<CHUNK; x++) for(let z=0; z<CHUNK; z++) {
+                const wx = cx*CHUNK+x, wz = cz*CHUNK+z;
+                const h = Math.floor((Math.sin(wx/15)*Math.cos(wz/15)*6 + Math.sin(wx/5)*2) + 15);
+                for(let y=0; y<=Math.min(h, HEIGHT-1); y++) {
+                    if(y===0) data[x+z*CHUNK+y*CHUNK*CHUNK] = B.STONE;
+                    else if(y===h) data[x+z*CHUNK+y*CHUNK*CHUNK] = B.GRASS;
+                    else if(y>h-4) data[x+z*CHUNK+y*CHUNK*CHUNK] = B.DIRT;
+                    else data[x+z*CHUNK+y*CHUNK*CHUNK] = B.STONE;
+                }
+                if(Math.random()<0.015 && h<HEIGHT-10 && x>2 && x<13 && z>2 && z<13) {
+                    const th = 4+Math.floor(Math.random()*2);
+                    for(let i=1; i<=th; i++) data[x+z*CHUNK+(h+i)*CHUNK*CHUNK] = B.LOG;
+                    for(let lx=-2; lx<=2; lx++) for(let lz=-2; lz<=2; lz++) for(let ly=th-2; ly<=th+1; ly++) {
+                        const idx = (x+lx)+(z+lz)*CHUNK+(h+ly)*CHUNK*CHUNK;
+                        if(data[idx]===0 && (Math.abs(lx)!==2 || Math.abs(lz)!==2 || Math.random()>0.2)) data[idx] = B.LEAVES;
+                    }
+                    data[x+z*CHUNK+(h+th+1)*CHUNK*CHUNK] = B.LEAVES;
+                }
+            }
+            const c = { data, mesh: null, dirty: true, cx, cz };
+            chunks.set(k, c); return c;
+        }
+
+        function getB(x,y,z) {
+            if(y<0||y>=HEIGHT) return 0;
+            const cx=Math.floor(x/CHUNK), cz=Math.floor(z/CHUNK);
+            const c = chunks.get(`${cx},${cz}`);
+            if(!c) return 0;
+            const lx=((x%CHUNK)+CHUNK)%CHUNK, lz=((z%CHUNK)+CHUNK)%CHUNK;
+            return c.data[lx+lz*CHUNK+y*CHUNK*CHUNK];
+        }
+
+        function setB(x,y,z,v) {
+            if(y<0||y>=HEIGHT) return;
+            const cx=Math.floor(x/CHUNK), cz=Math.floor(z/CHUNK);
+            const c = getChunk(cx,cz);
+            const lx=((x%CHUNK)+CHUNK)%CHUNK, lz=((z%CHUNK)+CHUNK)%CHUNK;
+            c.data[lx+lz*CHUNK+y*CHUNK*CHUNK] = v;
+            c.dirty=true;
+            if(lx===0) mark(cx-1,cz); if(lx===15) mark(cx+1,cz);
+            if(lz===0) mark(cx,cz-1); if(lz===15) mark(cx,cz+1);
+        }
+        function mark(cx,cz) { const c=chunks.get(`${cx},${cz}`); if(c) c.dirty=true; }
+        function getUV(name) { const i=texMap[name]; return [i/texNames.length, (i+1)/texNames.length]; }
+
+        // --- 5. UPDATED MESHING (Stairs & Doors Fix) ---
+        function updateMesh(c) {
+            if(c.mesh) { scene.remove(c.mesh); c.mesh.geometry.dispose(); c.mesh = null; }
+            const pos=[], norm=[], uv=[];
+            const ox = c.cx*CHUNK, oz = c.cz*CHUNK;
+            
+            // Helper to draw a box face
+            function pushQuad(x,y,z, w,h,d, face, texName) {
+                let p=[], n=[], u=getUV(texName);
+                const x2=x+w, y2=y+h, z2=z+d;
+                if(face==='px'){ p=[x2,y,z2, x2,y,z, x2,y2,z, x2,y2,z2]; n=[1,0,0]; }
+                if(face==='nx'){ p=[x,y,z, x,y,z2, x,y2,z2, x,y2,z]; n=[-1,0,0]; }
+                if(face==='py'){ p=[x,y2,z2, x2,y2,z2, x2,y2,z, x,y2,z]; n=[0,1,0]; }
+                if(face==='ny'){ p=[x,y,z, x2,y,z, x2,y,z2, x,y,z2]; n=[0,-1,0]; }
+                if(face==='pz'){ p=[x,y,z2, x2,y,z2, x2,y2,z2, x,y2,z2]; n=[0,0,1]; }
+                if(face==='nz'){ p=[x2,y,z, x,y,z, x,y2,z, x2,y2,z]; n=[0,0,-1]; }
+                pos.push(p[0],p[1],p[2], p[3],p[4],p[5], p[6],p[7],p[8], p[0],p[1],p[2], p[6],p[7],p[8], p[9],p[10],p[11]);
+                for(let i=0;i<6;i++) norm.push(...n);
+                uv.push(u[0],0, u[1],0, u[1],1, u[0],0, u[1],1, u[0],1);
+            }
+
+            // Helper to draw all 6 faces of a box
+            function pushBox(x, y, z, w, h, d, tex) {
+                pushQuad(x,y,z,w,h,d, 'px', tex); pushQuad(x,y,z,w,h,d, 'nx', tex);
+                pushQuad(x,y,z,w,h,d, 'py', tex); pushQuad(x,y,z,w,h,d, 'ny', tex);
+                pushQuad(x,y,z,w,h,d, 'pz', tex); pushQuad(x,y,z,w,h,d, 'nz', tex);
+            }
+
+            for(let x=0; x<CHUNK; x++) for(let y=0; y<HEIGHT; y++) for(let z=0; z<CHUNK; z++) {
+                const id = c.data[x+z*CHUNK+y*CHUNK*CHUNK];
+                if(id===0) continue;
+                const ax=ox+x, ay=y, az=oz+z;
+
+                // --- STAIRS ---
+                if(id >= 20 && id <= 23) {
+                    const t = getTex(id, 'side');
+                    // Base slab (Bottom half)
+                    pushBox(ax, ay, az, 1, 0.5, 1, t);
+                    // Top Step
+                    if(id === B.STAIR_N) pushBox(ax, ay+0.5, az, 1, 0.5, 0.5, t); // North Step
+                    if(id === B.STAIR_S) pushBox(ax, ay+0.5, az+0.5, 1, 0.5, 0.5, t); // South Step
+                    if(id === B.STAIR_W) pushBox(ax, ay+0.5, az, 0.5, 0.5, 1, t); // West Step
+                    if(id === B.STAIR_E) pushBox(ax+0.5, ay+0.5, az, 0.5, 0.5, 1, t); // East Step
+                    continue;
+                }
+
+                // --- DOORS ---
+                if(id >= 30) {
+                    const isOpen = (id % 2 === 1);
+                    const tex = (id >= 32) ? 'door_t' : 'door_b';
+                    // Door Geometries (Thin plates)
+                    if(isOpen) {
+                        // Open: Rotated along X axis (Flat against X)
+                        pushBox(ax, ay, az, 0.1, 1, 1, tex); 
+                    } else {
+                        // Closed: Flat against Z axis (centered for simplicity)
+                        pushBox(ax, ay, az + 0.4, 1, 1, 0.2, tex); 
+                    }
+                    continue;
+                }
+
+                // --- REGULAR BLOCKS (Optimization: Only draw visible faces) ---
+                if(getB(ax+1,ay,az)===0 || getB(ax+1,ay,az)===B.LEAVES) pushQuad(ax,ay,az,1,1,1,'px', getTex(id,'side'));
+                if(getB(ax-1,ay,az)===0 || getB(ax-1,ay,az)===B.LEAVES) pushQuad(ax,ay,az,1,1,1,'nx', getTex(id,'side'));
+                if(getB(ax,ay+1,az)===0 || getB(ax,ay+1,az)===B.LEAVES) pushQuad(ax,ay,az,1,1,1,'py', getTex(id,'up'));
+                if(getB(ax,ay-1,az)===0 || getB(ax,ay-1,az)===B.LEAVES) pushQuad(ax,ay,az,1,1,1,'ny', getTex(id,'down'));
+                if(getB(ax,ay,az+1)===0 || getB(ax,ay,az+1)===B.LEAVES) pushQuad(ax,ay,az,1,1,1,'pz', getTex(id,'side'));
+                if(getB(ax,ay,az-1)===0 || getB(ax,ay,az-1)===B.LEAVES) pushQuad(ax,ay,az,1,1,1,'nz', getTex(id,'side'));
+            }
+
+            if(pos.length>0) {
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+                geo.setAttribute('normal', new THREE.Float32BufferAttribute(norm,3));
+                geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv,2));
+                c.mesh = new THREE.Mesh(geo, mat);
+                scene.add(c.mesh);
+            }
+            c.dirty=false;
+        }
+
+        // --- 6. INTERACTION (Smart Placement) ---
+        const ray = new THREE.Raycaster(); ray.far = 8;
+        
+        document.addEventListener('mousedown', e => {
+            if(!controls.isLocked) { controls.lock(); return; }
+            ray.set(camera.position, camera.getWorldDirection(new THREE.Vector3()));
+            const hits = ray.intersectObjects(scene.children);
+            if(hits.length>0) {
+                const h = hits[0], n = h.face.normal;
+                const bx = Math.floor(h.point.x - n.x*0.5), by = Math.floor(h.point.y - n.y*0.5), bz = Math.floor(h.point.z - n.z*0.5);
+                const ax = Math.floor(h.point.x + n.x*0.5), ay = Math.floor(h.point.y + n.y*0.5), az = Math.floor(h.point.z + n.z*0.5);
+                const hitID = getB(bx,by,bz);
+                
+                // Interact (Right Click)
+                if(e.button === 2) {
+                    // Check if clicking existing door to toggle
+                    if(hitID >= 30) {
+                        const baseY = (hitID >= 32) ? by - 1 : by; // Find bottom block
+                        // Toggle both parts
+                        const currentBase = getB(bx, baseY, bz);
+                        if(currentBase === B.DOOR_B_C || currentBase === B.DOOR_B_O) {
+                            const newState = (currentBase === B.DOOR_B_C) ? B.DOOR_B_O : B.DOOR_B_C;
+                            setB(bx, baseY, bz, newState);       // Bottom
+                            setB(bx, baseY+1, bz, newState + 2); // Top
+                        }
+                        return; 
+                    }
+
+                    // Place Block
+                    const invID = INVENTORY[currSlot];
+                    
+                    // Smart Stair Rotation
+                    if(invID === B.STAIR_N) {
+                        // Calculate rotation 0-3 based on player yaw
+                        const rot = Math.round(camera.rotation.y / (Math.PI/2)) & 3; 
+                        // rot 0=Back(N), 1=Right(W), 2=Front(S), 3=Left(E) roughly
+                        // Adjust map to N/E/S/W constants
+                        let placedStair = B.STAIR_N; // Default
+                        // Note: ThreeJS rotation is counter-clockwise. 
+                        // This simple mapping makes stairs face the player.
+                        if(rot === 0) placedStair = B.STAIR_N;
+                        if(rot === 1) placedStair = B.STAIR_E; 
+                        if(rot === 2) placedStair = B.STAIR_S;
+                        if(rot === 3) placedStair = B.STAIR_W;
+                        setB(ax, ay, az, placedStair);
+                    } 
+                    // Door Placement (needs 2 blocks space)
+                    else if(invID === B.DOOR_B_C) {
+                        if(getB(ax, ay+1, az) === 0) {
+                            setB(ax, ay, az, B.DOOR_B_C);
+                            setB(ax, ay+1, az, B.DOOR_T_C);
+                        }
+                    } 
+                    else {
+                        setB(ax, ay, az, invID);
+                    }
+                } 
+                // Break (Left Click)
+                else if(e.button === 0) {
+                    if(hitID >= 30) {
+                         const oY = (hitID >= 32) ? by - 1 : by + 1;
+                         setB(bx, oY, bz, 0); // Remove other half
+                    }
+                    setB(bx, by, bz, 0);
+                }
+            }
+        });
+
+        // --- 7. CONTROLS & LOOP ---
+        window.addEventListener('resize', ()=>{camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight);});
+        document.addEventListener('keydown', e=>{
+            if(e.code==='KeyW')move.f=1; if(e.code==='KeyS')move.b=1; if(e.code==='KeyA')move.l=1; if(e.code==='KeyD')move.r=1;
+            if(e.code==='Space') { if(player.fly)move.u=1; else if(player.ground)player.vel.y=9; else{const n=Date.now(); if(n-lastSpc<250){player.fly=!player.fly; player.vel.set(0,0,0);} lastSpc=n;} }
+            if(e.code==='ShiftLeft')move.d=1;
+            if(e.code.startsWith('Digit')) setSlot(parseInt(e.key)-1);
+        });
+        document.addEventListener('keyup', e=>{ if(e.code==='KeyW')move.f=0; if(e.code==='KeyS')move.b=0; if(e.code==='KeyA')move.l=0; if(e.code==='KeyD')move.r=0; if(e.code==='Space')move.u=0; if(e.code==='ShiftLeft')move.d=0; });
+        document.addEventListener('wheel', e => {
+            currSlot = (currSlot + (e.deltaY > 0 ? 1 : -1) + INVENTORY.length) % INVENTORY.length;
+            updateHotbar();
+        });
+
+        document.getElementById('btnSave').onclick=()=>{
+            const s=[]; for(const[k,c] of chunks) s.push({k, d:Array.from(c.data)});
+            localStorage.setItem('mc_save',JSON.stringify(s)); alert('Saved!');
+        };
+        document.getElementById('btnLoad').onclick=()=>{
+            const r=localStorage.getItem('mc_save'); if(!r)return;
+            for(const c of chunks.values()) if(c.mesh){scene.remove(c.mesh);c.mesh.geometry.dispose();} chunks.clear();
+            const d=JSON.parse(r);
+            for(const i of d){ const[cx,cz]=i.k.split(',').map(Number); chunks.set(i.k,{data:new Uint8Array(i.d),mesh:null,dirty:true,cx,cz}); }
+            alert('Loaded!');
+        };
+        document.getElementById('btnClear').onclick=()=>{localStorage.removeItem('mc_save'); location.reload();};
+
+        updateHotbar();
+        function updateChunks() {
+            const px=Math.floor(player.pos.x/CHUNK), pz=Math.floor(player.pos.z/CHUNK);
+            for(let x=px-RENDER_DIST; x<=px+RENDER_DIST; x++) for(let z=pz-RENDER_DIST; z<=pz+RENDER_DIST; z++) {
+                const c = getChunk(x,z);
+                if(c.dirty) updateMesh(c);
+            }
+        }
+        updateChunks();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const now=performance.now(), dt=Math.min((now-pt)/1000, 0.1); pt=now;
+            
+            if(controls.isLocked) {
+                const spd = player.fly?20:6;
+                const f=new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).setY(0).normalize();
+                const r=new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion).setY(0).normalize();
+                const v=new THREE.Vector3();
+                if(move.f)v.add(f); if(move.b)v.sub(f); if(move.r)v.add(r); if(move.l)v.sub(r);
+                if(v.length()>0)v.normalize().multiplyScalar(spd);
+                
+                if(player.fly) { player.pos.add(v.multiplyScalar(dt)); player.pos.y+=(move.u-move.d)*10*dt; }
+                else {
+                    player.vel.x=v.x; player.vel.z=v.z; player.vel.y-=30*dt;
+                    function collide(axis) {
+                        player.pos[axis]+=player.vel[axis]*dt;
+                        const bx=Math.floor(player.pos.x), by=Math.floor(player.pos.y), bz=Math.floor(player.pos.z);
+                        if(getB(bx,by,bz) || getB(bx,by+1,bz)) { player.pos[axis]-=player.vel[axis]*dt; return true; }
+                        return false;
+                    }
+                    collide('x'); collide('z');
+                    if(collide('y')) {
+                        if(player.vel.y<0) { player.ground=true; player.pos.y=Math.floor(player.pos.y)+0.01; }
+                        player.vel.y=0;
+                    } else player.ground=false;
+                    if(player.pos.y<-30) player.pos.set(0,40,0);
+                }
+                camera.position.copy(player.pos).add(new THREE.Vector3(0,1.6,0));
+                updateChunks();
+            }
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>

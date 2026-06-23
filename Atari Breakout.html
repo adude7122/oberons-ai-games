@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Atari Breakout - CRT Edition</title>
+
+<style>
+    html, body {
+        margin: 0;
+        background: #000;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        font-family: "Courier New", monospace;
+        overflow: hidden;
+        color: #ccc;
+    }
+
+    h1 {
+        margin-bottom: 15px;
+        font-size: 28px;
+        color: #d0d0d0;
+        text-shadow: 0 0 10px #0f0, 0 0 16px #060;
+    }
+
+    /* CRT frame */
+    .crt {
+        position: relative;
+        width: 640px;
+        height: 480px;
+        background: #000;
+        border-radius: 10px;
+        overflow: hidden;
+        border: 10px solid #222;
+        box-shadow: 0 0 20px rgba(0,255,0,0.2), inset 0 0 40px rgba(0,255,0,0.15);
+    }
+
+    /* Scanlines */
+    .crt::after {
+        content: "";
+        pointer-events: none;
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: repeating-linear-gradient(
+            to bottom,
+            rgba(0,0,0,0.2) 0px,
+            rgba(0,0,0,0.2) 2px,
+            rgba(255,255,255,0.03) 3px
+        );
+        mix-blend-mode: overlay;
+        opacity: 0.55;
+    }
+
+    /* Barrel distortion curve + pixelation */
+    canvas {
+        width: 100%;
+        height: 100%;
+        image-rendering: pixelated;
+        transform: perspective(900px) translateZ(60px) scale(1.04)
+                   rotateX(2deg) rotateY(-2deg);
+        filter: saturate(0.75) contrast(1.05);
+    }
+
+    /* Vignette overlay */
+    .crt::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: radial-gradient(circle at center, rgba(0,0,0,0) 40%, rgba(0,0,0,0.6) 100%);
+        z-index: 3;
+    }
+
+    /* Game Over overlay */
+    #gameover {
+        position: absolute;
+        inset: 0;
+        background: rgba(0,0,0,0.85);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        color: #ccc;
+        font-size: 28px;
+        z-index: 4;
+        text-shadow: 0 0 10px #0f0;
+    }
+    #gameover small {
+        margin-top: 10px;
+        font-size: 16px;
+    }
+
+</style>
+</head>
+<body>
+
+<h1>ATARI BREAKOUT</h1>
+
+<div class="crt">
+    <canvas id="game" width="640" height="480"></canvas>
+    <div id="gameover">
+        <div>GAME OVER</div>
+        <small>Press SPACE to Restart</small>
+    </div>
+</div>
+
+<script>
+// -------------------- Audio (Authentic Atari-Style) --------------------
+const audio = new (window.AudioContext || window.webkitAudioContext)();
+
+function beep(freq, duration = 0.06, vol = 0.2) {
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+    osc.type = "square";
+    osc.frequency.value = freq;
+
+    gain.gain.value = vol;
+
+    osc.connect(gain);
+    gain.connect(audio.destination);
+
+    osc.start();
+    osc.stop(audio.currentTime + duration);
+}
+
+const sndPaddle = () => beep(450);
+const sndBrick  = () => beep(650);
+const sndWall   = () => beep(300);
+const sndDeath  = () => beep(120, 0.5, 0.3);
+
+// -------------------- Setup --------------------
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const gameOverEl = document.getElementById("gameover");
+
+let gameOver = false;
+
+/* Desaturated colors */
+const paddleColor = "#9f9";
+const ballColor = "#eee";
+const brickColors = ["#d66","#cd8c4a","#d4d467","#9f9","#7fcaca","#6d79c9"];
+
+const paddle = {
+    w: 80, h: 12,
+    x: canvas.width/2 - 40,
+    y: canvas.height - 30,
+    speed: 6, dx: 0
+};
+
+const ball = {
+    x: canvas.width/2,
+    y: canvas.height - 50,
+    radius: 6,
+    speed: 4,
+    dx: 4 * (Math.random() > 0.5 ? 1 : -1),
+    dy: -4
+};
+
+const brick = {
+    rows: 6, cols: 10,
+    w: 60, h: 20,
+    padding: 4,
+    offsetTop: 40,
+    offsetLeft: 20
+};
+
+let bricks = [];
+function initBricks() {
+    bricks = [];
+    for (let r=0;r<brick.rows;r++){
+        bricks[r] = [];
+        for (let c=0;c<brick.cols;c++){
+            bricks[r][c] = {x:0,y:0,alive:1};
+        }
+    }
+}
+initBricks();
+
+// -------------------- Input --------------------
+document.addEventListener("keydown", e => {
+    if (gameOver && e.code === "Space") restart();
+
+    if (e.key === "ArrowLeft") paddle.dx = -paddle.speed;
+    if (e.key === "ArrowRight") paddle.dx = paddle.speed;
+});
+
+document.addEventListener("keyup", e => {
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") paddle.dx = 0;
+});
+
+// -------------------- Physics --------------------
+function movePaddle() {
+    paddle.x += paddle.dx;
+    if (paddle.x < 0) paddle.x = 0;
+    if (paddle.x + paddle.w > canvas.width)
+        paddle.x = canvas.width - paddle.w;
+}
+
+function moveBall() {
+    ball.x += ball.dx;
+    ball.y += ball.dy;
+
+    // Walls
+    if (ball.x + ball.radius > canvas.width || ball.x - ball.radius < 0){
+        ball.dx *= -1;
+        sndWall();
+    }
+
+    if (ball.y - ball.radius < 0){
+        ball.dy *= -1;
+        sndWall();
+    }
+
+    // Bottom = death
+    if (ball.y + ball.radius > canvas.height) {
+        sndDeath();
+        triggerGameOver();
+        return;
+    }
+
+    // Paddle
+    if (
+        ball.y + ball.radius >= paddle.y &&
+        ball.x >= paddle.x &&
+        ball.x <= paddle.x + paddle.w &&
+        ball.dy > 0
+    ) {
+        let hit = (ball.x - (paddle.x + paddle.w/2)) / (paddle.w/2);
+        ball.dx = ball.speed * hit * 1.2;
+        ball.dy = -ball.speed;
+        sndPaddle();
+    }
+
+    // Bricks
+    for (let r=0;r<brick.rows;r++){
+        for (let c=0;c<brick.cols;c++){
+            const b = bricks[r][c];
+            if (!b.alive) continue;
+
+            if (
+                ball.x > b.x &&
+                ball.x < b.x + brick.w &&
+                ball.y + ball.radius > b.y &&
+                ball.y - ball.radius < b.y + brick.h
+            ) {
+                ball.dy *= -1;
+                b.alive = 0;
+                sndBrick();
+            }
+        }
+    }
+}
+
+// -------------------- Drawing --------------------
+function clear() {
+    ctx.fillStyle="#000";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+}
+
+function drawPaddle() {
+    ctx.fillStyle=paddleColor;
+    ctx.fillRect(paddle.x,paddle.y,paddle.w,paddle.h);
+}
+
+function drawBall() {
+    ctx.fillStyle=ballColor;
+    ctx.beginPath();
+    ctx.arc(ball.x,ball.y,ball.radius,0,Math.PI*2);
+    ctx.fill();
+}
+
+function drawBricks() {
+    for (let r=0;r<brick.rows;r++){
+        for (let c=0;c<brick.cols;c++){
+            if (!bricks[r][c].alive) continue;
+            const bx=c*(brick.w+brick.padding)+brick.offsetLeft;
+            const by=r*(brick.h+brick.padding)+brick.offsetTop;
+            bricks[r][c].x=bx;
+            bricks[r][c].y=by;
+
+            ctx.fillStyle=brickColors[r % brickColors.length];
+            ctx.fillRect(bx,by,brick.w,brick.h);
+        }
+    }
+}
+
+// -------------------- Game Over --------------------
+function triggerGameOver(){
+    gameOver = true;
+    gameOverEl.style.display = "flex";
+}
+
+function restart(){
+    gameOver = false;
+    gameOverEl.style.display = "none";
+
+    ball.x = canvas.width/2;
+    ball.y = canvas.height - 50;
+    ball.dx = ball.speed * (Math.random()>0.5?1:-1);
+    ball.dy = -ball.speed;
+
+    initBricks();
+}
+
+// -------------------- Loop --------------------
+function update() {
+    if (!gameOver){
+        clear();
+        drawBricks();
+        drawPaddle();
+        drawBall();
+
+        movePaddle();
+        moveBall();
+    }
+
+    requestAnimationFrame(update);
+}
+
+update();
+</script>
+</body>
+</html>
