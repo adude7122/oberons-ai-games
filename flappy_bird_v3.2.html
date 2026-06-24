@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Bird - Smoother Rotation</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #222;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+        }
+
+        canvas {
+            display: block;
+            background-color: #70c5ce;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas" width="288" height="512"></canvas>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // --- 1. LOAD THE IMAGES ---
+    const bgImg = new Image();
+    bgImg.src = "https://raw.githubusercontent.com/samuelcust/flappy-bird-assets/master/sprites/background-day.png";
+
+    const fgImg = new Image();
+    fgImg.src = "https://raw.githubusercontent.com/samuelcust/flappy-bird-assets/master/sprites/base.png";
+
+    const pipeImg = new Image();
+    pipeImg.src = "https://raw.githubusercontent.com/samuelcust/flappy-bird-assets/master/sprites/pipe-green.png";
+
+    const birdUp = new Image();
+    birdUp.src = "https://raw.githubusercontent.com/samuelcust/flappy-bird-assets/master/sprites/yellowbird-upflap.png";
+    const birdMid = new Image();
+    birdMid.src = "https://raw.githubusercontent.com/samuelcust/flappy-bird-assets/master/sprites/yellowbird-midflap.png";
+    const birdDown = new Image();
+    birdDown.src = "https://raw.githubusercontent.com/samuelcust/flappy-bird-assets/master/sprites/yellowbird-downflap.png";
+
+    // --- 2. GAME VARIABLES ---
+    let frames = 0;
+    let score = 0;
+    let bestScore = 0;
+    let currentState = 0; 
+
+    // --- 3. GAME OBJECTS ---
+    const bird = {
+        x: 50,
+        y: 150,
+        w: 34,
+        h: 24,
+        gravity: 0.25,
+        velocity: 0,
+        jump: -4.5,
+        rotation: 0,
+        animationIndex: 0,
+        animations: [birdUp, birdMid, birdDown, birdMid], 
+        
+        draw() {
+            let currentImage = this.animations[this.animationIndex];
+            ctx.save();
+            ctx.translate(this.x + this.w / 2, this.y + this.h / 2);
+            ctx.rotate(this.rotation);
+            ctx.drawImage(currentImage, -this.w / 2, -this.h / 2);
+            ctx.restore();
+        },
+        
+        update(dt) {
+            let flapSpeed = currentState === 0 ? 10 : 5;
+            if (Math.floor(frames % flapSpeed) === 0) {
+                if (this.rotation < 70 * Math.PI / 180) { 
+                    this.animationIndex = (this.animationIndex + 1) % this.animations.length;
+                } else {
+                    this.animationIndex = 1; 
+                }
+            }
+
+            if (currentState === 1) {
+                this.velocity += this.gravity * dt;
+                this.y += this.velocity * dt;
+                
+                if (this.y + this.h >= canvas.height - 112) {
+                    this.y = canvas.height - 112 - this.h;
+                    currentState = 2;
+                }
+                
+                if (this.y <= 0) {
+                    this.y = 0;
+                    this.velocity = 0;
+                }
+
+                // *** SMOOTHER ROTATION LOGIC ***
+                if (this.velocity < this.jump + 2) {
+                    // Less extreme jump tilt (-15 degrees instead of -25)
+                    this.rotation = -15 * Math.PI / 180;
+                } else {
+                    // Slower downward turn (2 degrees per frame instead of 4)
+                    this.rotation += 2 * Math.PI / 180 * dt;
+                    // Cap the dive at 70 degrees instead of 90
+                    if (this.rotation > 70 * Math.PI / 180) {
+                        this.rotation = 70 * Math.PI / 180;
+                    }
+                }
+                
+            } else if (currentState === 0) {
+                this.y = 150 + Math.cos(frames / 10) * 5; 
+                this.rotation = 0;
+            } else if (currentState === 2) {
+                // Nose dive to 70 degrees when dead
+                this.rotation = 70 * Math.PI / 180;
+                if (this.y + this.h < canvas.height - 112) {
+                    this.velocity += this.gravity * 2 * dt; 
+                    this.y += this.velocity * dt;
+                }
+            }
+        },
+        
+        flap() {
+            this.velocity = this.jump;
+        }
+    };
+
+    const pipes = {
+        items: [],
+        width: 52,
+        height: 320,
+        gap: 100, 
+        dx: 2,    
+        
+        draw() {
+            for (let i = 0; i < this.items.length; i++) {
+                let p = this.items[i];
+                let bottomY = p.y + this.height + this.gap;
+
+                ctx.save();
+                ctx.translate(p.x + this.width / 2, p.y + this.height / 2);
+                ctx.rotate(Math.PI); 
+                ctx.drawImage(pipeImg, -this.width / 2, -this.height / 2);
+                ctx.restore();
+                
+                ctx.drawImage(pipeImg, p.x, bottomY);
+            }
+        },
+        
+        update(dt) {
+            if (currentState !== 1) return;
+
+            this.spawnTimer = (this.spawnTimer || 0) + dt;
+            if (this.spawnTimer >= 100) {
+                this.spawnTimer = 0;
+                let randomY = Math.floor(Math.random() * this.height) - this.height;
+                if (randomY > -50) randomY = -50;
+                this.items.push({ x: canvas.width, y: randomY, passed: false });
+            }
+
+            for (let i = 0; i < this.items.length; i++) {
+                let p = this.items[i];
+                let bottomY = p.y + this.height + this.gap;
+
+                p.x -= this.dx * dt;
+
+                if (
+                    bird.x + bird.w > p.x && 
+                    bird.x < p.x + this.width &&
+                    (bird.y < p.y + this.height || bird.y + bird.h > bottomY)
+                ) {
+                    currentState = 2; 
+                }
+
+                if (p.x + this.width < bird.x && !p.passed) {
+                    score++;
+                    p.passed = true;
+                }
+
+                if (p.x + this.width < 0) {
+                    this.items.shift();
+                    i--;
+                }
+            }
+        },
+        
+        reset() {
+            this.items = [];
+        }
+    };
+
+    const bg = {
+        draw() {
+            ctx.drawImage(bgImg, 0, 0);
+        }
+    };
+
+    const fg = {
+        h: 112,
+        x: 0,
+        dx: 2,
+        draw() {
+            ctx.drawImage(fgImg, this.x, canvas.height - this.h);
+            ctx.drawImage(fgImg, this.x + 336, canvas.height - this.h);
+        },
+        update(dt) {
+            if (currentState === 1 || currentState === 0) {
+                this.x = (this.x - this.dx * dt) % 168; 
+            }
+        }
+    };
+
+    // --- 4. UI AND TEXT ---
+    function drawUI() {
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 4;
+        
+        if (currentState === 0) {
+            ctx.font = '30px Impact';
+            ctx.strokeText("Get Ready!", 80, 200);
+            ctx.fillText("Get Ready!", 80, 200);
+        } else if (currentState === 1) {
+            ctx.font = '40px Impact';
+            ctx.strokeText(score, canvas.width / 2 - 10, 50);
+            ctx.fillText(score, canvas.width / 2 - 10, 50);
+        } else if (currentState === 2) {
+            ctx.font = '40px Impact';
+            ctx.strokeText("Game Over", 50, 200);
+            ctx.fillText("Game Over", 50, 200);
+            
+            ctx.font = '24px Impact';
+            ctx.lineWidth = 3;
+            ctx.strokeText(`Score: ${score}`, 100, 250);
+            ctx.fillText(`Score: ${score}`, 100, 250);
+            
+            if (score > bestScore) bestScore = score;
+            ctx.strokeText(`Best: ${bestScore}`, 100, 290);
+            ctx.fillText(`Best: ${bestScore}`, 100, 290);
+        }
+    }
+
+    // --- 5. MAIN GAME LOOP ---
+    let lastTime = null;
+    const TARGET_FRAME_MS = 1000 / 60; // physics/timers are tuned for 60fps "frames"
+
+    function loop(timestamp) {
+        if (lastTime === null) lastTime = timestamp;
+        let elapsed = timestamp - lastTime;
+        lastTime = timestamp;
+
+        // dt = how many "60fps frames" worth of time just passed.
+        // Clamped so a dropped/laggy frame (tab backgrounded, etc.) can't
+        // cause a huge physics jump (e.g. bird teleporting through a pipe).
+        let dt = elapsed / TARGET_FRAME_MS;
+        if (!isFinite(dt) || dt <= 0) dt = 1;
+        dt = Math.min(dt, 3);
+
+        bg.draw();
+        pipes.draw();
+        fg.draw();
+        bird.draw();
+        drawUI();
+        
+        fg.update(dt);
+        bird.update(dt);
+        pipes.update(dt);
+        
+        frames += dt;
+        requestAnimationFrame(loop);
+    }
+
+    // --- 6. CONTROLS ---
+    function handleInput() {
+        if (currentState === 0) {
+            currentState = 1; 
+            bird.flap();
+        } else if (currentState === 1) {
+            bird.flap();
+        } else if (currentState === 2) {
+            if (bird.y + bird.h >= canvas.height - 112) {
+                bird.y = 150;
+                bird.velocity = 0;
+                bird.rotation = 0;
+                pipes.reset();
+                score = 0;
+                currentState = 0; 
+            }
+        }
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.code === 'Space') handleInput();
+        if (e.code === 'ArrowUp') handleInput();   
+    });
+    canvas.addEventListener('mousedown', handleInput);
+    canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        handleInput();
+    });
+
+    // Load everything before starting
+    let imagesLoaded = 0;
+    const totalImages = 6;
+    function checkLoad() {
+        imagesLoaded++;
+        if(imagesLoaded === totalImages) requestAnimationFrame(loop);
+    }
+    bgImg.onload = checkLoad;
+    fgImg.onload = checkLoad;
+    pipeImg.onload = checkLoad;
+    birdUp.onload = checkLoad;
+    birdMid.onload = checkLoad;
+    birdDown.onload = checkLoad;
+</script>
+
+</body>
+</html>
